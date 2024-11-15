@@ -1,6 +1,6 @@
 # node-red-contrib-noxy
 
-A collection of custom Node-RED nodes designed for easy integration between **Voxta**, **Noxy-Red**, and Node-RED. This pack includes:
+A collection of custom Node-RED nodes designed for easy integration between **Voxta** and Node-RED. This pack includes:
 
 1. **Voxta Actions**: Register actions with Voxta.
 2. **Voxta Messages**: Send messages to Voxta.
