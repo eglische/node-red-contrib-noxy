@@ -1,0 +1,153 @@
+<script type="text/javascript">
+    RED.nodes.registerType('voxta-messages', {
+        category: 'function',
+        color: '#add8e6',
+        defaults: {
+            name: { value: '' },
+            index: { value: 1 },
+            messages: { value: [] },
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: 'noxyred.png',
+        label: function () {
+            return this.name || 'Voxta Messages';
+        },
+        oneditprepare: function () {
+            const node = this;
+
+            const $eventDropdown = $('#node-input-eventDropdown');
+            const $typeDropdown = $('#node-input-flag');
+            const $eventName = $('#node-input-eventName');
+            const $shortRef = $('#node-input-shortRef');
+            const $content = $('#node-input-content');
+            const $additionalMessages = $('#node-input-additionalMessages');
+
+            function loadSelectedMessage() {
+                const selectedIndex = $eventDropdown.val();
+                if (node.messages && node.messages[selectedIndex]) {
+                    const msg = node.messages[selectedIndex];
+                    $typeDropdown.val(msg.flag || '');
+                    $eventName.val(msg.eventName || '');
+                    $shortRef.val(msg.shortRef || '');
+                    $content.val(msg.content || '');
+                    $additionalMessages.val((msg.additionalMessages || []).join(', '));
+                }
+            }
+
+            function populateDropdown() {
+                $eventDropdown.empty();
+                (node.messages || []).forEach((msg, index) => {
+                    $eventDropdown.append(`<option value="${index}">${msg.eventName || `Event ${index + 1}`}</option>`);
+                });
+            }
+
+            // Auto-load fields when a dropdown element is chosen
+            $eventDropdown.on('change', function () {
+                loadSelectedMessage();
+            });
+
+            $('#save-button').on('click', function () {
+                RED.nodes.dirty(true);
+                const selectedIndex = $eventDropdown.val();
+                const additionalMessages = $additionalMessages.val().split(/[;,]/).map(item => item.trim()).filter(Boolean);
+                const newMessage = {
+                    flag: $typeDropdown.val(),
+                    eventName: $eventName.val(),
+                    shortRef: $shortRef.val(),
+                    content: $content.val(),
+                    additionalMessages,
+                };
+
+                if (node.messages[selectedIndex]) {
+                    node.messages[selectedIndex] = newMessage;
+                } else {
+                    node.messages.push(newMessage);
+                }
+
+                // Send updates to the runtime node
+                RED.nodes.sendUpdate(node, { messages: node.messages });
+
+                populateDropdown();
+
+            });
+
+            // Add new empty event
+            $('#add-new-event').on('click', function () {
+                node.messages.push({});
+                populateDropdown();
+                $eventDropdown.val(node.messages.length - 1);
+                loadSelectedMessage();
+            });
+
+            // Remove selected event
+            $('#remove-event').on('click', function () {
+                const selectedIndex = $eventDropdown.val();
+                if (selectedIndex == 0) {
+                    RED.notify("Cannot delete the first entry. You can only modify it.", "error");
+                    return;
+                }
+                if (selectedIndex !== null && node.messages[selectedIndex]) {
+                    node.messages.splice(selectedIndex, 1);
+                    populateDropdown();
+                    $eventDropdown.val(Math.max(0, selectedIndex - 1));
+                    loadSelectedMessage();
+                }
+            });
+
+            populateDropdown();
+            loadSelectedMessage();
+        },
+    });
+</script>
+
+<script type="text/html" data-template-name="voxta-messages">
+    <div class="form-row">
+        <label for="node-input-name" style="width: 120px;"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-eventDropdown" style="width: 120px;"><i class="fa fa-list"></i> Events</label>
+        <select id="node-input-eventDropdown"></select>
+        <button id="add-new-event">+</button>
+        <button id="remove-event">&ndash;</button>
+    </div>
+    <div class="form-row">
+        <label for="node-input-flag" style="width: 120px;"><i class="fa fa-flag"></i> Type</label>
+        <select id="node-input-flag">
+            <option value="">None</option>
+            <option value="event">/event</option>
+            <option value="story">/story</option>
+            <option value="note">/note</option>
+            <option value="secret">/secret</option>
+            <option value="instruction">/instruction</option>
+            <option value="noreply">/noreply</option>
+            <option value="setflags">/setflags</option>
+            <option value="repeat">/repeat</option>
+        </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-eventName" style="width: 120px;"><i class="fa fa-tag"></i> Event Name</label>
+        <input type="text" id="node-input-eventName" placeholder="Event Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-shortRef" style="width: 120px;"><i class="fa fa-link"></i> Short Ref</label>
+        <input type="text" id="node-input-shortRef" placeholder="Short Reference">
+    </div>
+    <div class="form-row">
+        <label for="node-input-content" style="width: 120px;"><i class="fa fa-file-text"></i> Content</label>
+        <textarea id="node-input-content" placeholder="Message Content"></textarea>
+    </div>
+    <div class="form-row">
+        <label for="node-input-additionalMessages" style="width: 120px;"><i class="fa fa-plus-circle"></i> Additional</label>
+        <input type="text" id="node-input-additionalMessages" placeholder="ShortRefs separated by , or ;">
+    </div>
+    <div class="form-tips">
+        <button id="save-button">Save</button>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="voxta-messages">
+    <p>A node for managing indexed messages with support for triggers, types, and additional linked messages.</p>
+    <p>Use this node to define messages that can be indexed, triggered by short references, and optionally linked to other messages for sequential output.</p>
+</script>

@@ -1,0 +1,317 @@
+<script type="text/javascript">
+    console.log('Script loaded!');
+    RED.nodes.registerType('voxta-keys', {
+        category: 'function',
+        color: '#add8e6',
+        defaults: {
+            name: { value: '' },
+            keys: { value: [] }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: 'noxyred.png',
+        label: function () {
+            return this.name || 'Voxta Keys';
+        },
+        oneditprepare: function () {
+            const node = this;
+            const $keyTable = $('#node-input-keyTable');
+
+            const keyMappings = {
+                modifiers: [
+                    { name: "SHIFT", vk: [0x10] },
+                    { name: "CTRL", vk: [0x11] },
+                    { name: "ALT", vk: [0x12] },
+                    { name: "L_SHIFT", vk: [0xA0] },
+                    { name: "R_SHIFT", vk: [0xA1] },
+                    { name: "L_CTRL", vk: [0xA2] },
+                    { name: "R_CTRL", vk: [0xA3] },
+                    { name: "L_ALT", vk: [0xA4] },
+                    { name: "R_ALT", vk: [0xA5] },
+
+                    // Combinations with SHIFT
+                    { name: "L_SHIFT + CTRL", vk: [0xA0, 0x11] },
+                    { name: "R_SHIFT + CTRL", vk: [0xA1, 0x11] },
+                    { name: "SHIFT + CTRL", vk: [0x10, 0x11] },
+                    { name: "L_SHIFT + ALT", vk: [0xA0, 0x12] },
+                    { name: "R_SHIFT + ALT", vk: [0xA1, 0x12] },
+                    { name: "SHIFT + ALT", vk: [0x10, 0x12] },
+
+                    // Full combinations
+                    { name: "L_CTRL + ALT + SHIFT", vk: [0xA2, 0xA4, 0xA0] },
+                ],
+
+                mainKeys: [
+                    // Alphanumeric Keys
+                    { name: "A", vk: 0x41 },
+                    { name: "B", vk: 0x42 },
+                    { name: "C", vk: 0x43 },
+                    { name: "D", vk: 0x44 },
+                    { name: "E", vk: 0x45 },
+                    { name: "F", vk: 0x46 },
+                    { name: "G", vk: 0x47 },
+                    { name: "H", vk: 0x48 },
+                    { name: "I", vk: 0x49 },
+                    { name: "J", vk: 0x4A },
+                    { name: "K", vk: 0x4B },
+                    { name: "L", vk: 0x4C },
+                    { name: "M", vk: 0x4D },
+                    { name: "N", vk: 0x4E },
+                    { name: "O", vk: 0x4F },
+                    { name: "P", vk: 0x50 },
+                    { name: "Q", vk: 0x51 },
+                    { name: "R", vk: 0x52 },
+                    { name: "S", vk: 0x53 },
+                    { name: "T", vk: 0x54 },
+                    { name: "U", vk: 0x55 },
+                    { name: "V", vk: 0x56 },
+                    { name: "W", vk: 0x57 },
+                    { name: "X", vk: 0x58 },
+                    { name: "Y", vk: 0x59 },
+                    { name: "Z", vk: 0x5A },
+
+                    // Numeric Keys (Top Row)
+                    { name: "0", vk: 0x30 },
+                    { name: "1", vk: 0x31 },
+                    { name: "2", vk: 0x32 },
+                    { name: "3", vk: 0x33 },
+                    { name: "4", vk: 0x34 },
+                    { name: "5", vk: 0x35 },
+                    { name: "6", vk: 0x36 },
+                    { name: "7", vk: 0x37 },
+                    { name: "8", vk: 0x38 },
+                    { name: "9", vk: 0x39 },
+
+                    // Function Keys
+                    { name: "F1", vk: 0x70 },
+                    { name: "F2", vk: 0x71 },
+                    { name: "F3", vk: 0x72 },
+                    { name: "F4", vk: 0x73 },
+                    { name: "F5", vk: 0x74 },
+                    { name: "F6", vk: 0x75 },
+                    { name: "F7", vk: 0x76 },
+                    { name: "F8", vk: 0x77 },
+                    { name: "F9", vk: 0x78 },
+                    { name: "F10", vk: 0x79 },
+                    { name: "F11", vk: 0x7A },
+                    { name: "F12", vk: 0x7B },
+
+                    // Navigation Keys
+                    { name: "ArrowUp", vk: 0x26 },
+                    { name: "ArrowDown", vk: 0x28 },
+                    { name: "ArrowLeft", vk: 0x25 },
+                    { name: "ArrowRight", vk: 0x27 },
+                    { name: "Home", vk: 0x24 },
+                    { name: "End", vk: 0x23 },
+                    { name: "PageUp", vk: 0x21 },
+                    { name: "PageDown", vk: 0x22 },
+                    { name: "Insert", vk: 0x2D },
+                    { name: "Delete", vk: 0x2E },
+
+                        // Numpad Numbers
+                    { name: "Num0", vk: 0x60 },
+                    { name: "Num1", vk: 0x61 },
+                    { name: "Num2", vk: 0x62 },
+                    { name: "Num3", vk: 0x63 },
+                    { name: "Num4", vk: 0x64 },
+                    { name: "Num5", vk: 0x65 },
+                    { name: "Num6", vk: 0x66 },
+                    { name: "Num7", vk: 0x67 },
+                    { name: "Num8", vk: 0x68 },
+                    { name: "Num9", vk: 0x69 },
+
+                    // Numpad Operators
+                    { name: "Num Multiply", vk: 0x6A }, // *
+                    { name: "Num Add", vk: 0x6B },      // +
+                    { name: "Num Subtract", vk: 0x6D }, // -
+                    { name: "Num Decimal", vk: 0x6E },  // .
+                    { name: "Num Divide", vk: 0x6F },   // /
+
+                    // Special Numpad Keys
+                    { name: "Num Lock", vk: 0x90 },
+                    { name: "Num Enter", vk: 0x0D }, // Enter key for the numpad
+
+                    // Special Characters
+                    { name: "Backspace", vk: 0x08 },
+                    { name: "Tab", vk: 0x09 },
+                    { name: "Enter", vk: 0x0D },
+                    { name: "Escape", vk: 0x1B },
+                    { name: "Space", vk: 0x20 },
+                    { name: "Caps Lock", vk: 0x14 },
+                    { name: "Scroll Lock", vk: 0x91 },
+                    { name: "Pause/Break", vk: 0x13 },
+
+                    // Punctuation
+                    { name: ";", vk: 0xBA },  // VK_OEM_1
+                    { name: "=", vk: 0xBB },  // VK_OEM_PLUS
+                    { name: ",", vk: 0xBC },  // VK_OEM_COMMA
+                    { name: "-", vk: 0xBD },  // VK_OEM_MINUS
+                    { name: ".", vk: 0xBE },  // VK_OEM_PERIOD
+                    { name: "/", vk: 0xBF },  // VK_OEM_2
+                    { name: "`", vk: 0xC0 },  // VK_OEM_3
+                    { name: "[", vk: 0xDB },  // VK_OEM_4
+                    { name: "\\", vk: 0xDC }, // VK_OEM_5
+                    { name: "]", vk: 0xDD },  // VK_OEM_6
+                    { name: "'", vk: 0xDE },  // VK_OEM_7
+                    
+                    // System Keys
+                    { name: "Print Screen", vk: 0x2C },
+                    { name: "Insert", vk: 0x2D },
+                    { name: "Delete", vk: 0x2E },
+                    { name: "Help", vk: 0x2F },
+
+                    // Windows/System Keys
+                    { name: "Left Windows", vk: 0x5B },  // VK_LWIN
+                    { name: "Right Windows", vk: 0x5C }, // VK_RWIN
+                    { name: "Applications", vk: 0x5D },  // Context menu key
+
+                    // Media Keys
+                    { name: "Media Next Track", vk: 0xB0 },
+                    { name: "Media Previous Track", vk: 0xB1 },
+                    { name: "Media Stop", vk: 0xB2 },
+                    { name: "Media Play/Pause", vk: 0xB3 },
+                    { name: "Volume Mute", vk: 0xAD },
+                    { name: "Volume Down", vk: 0xAE },
+                    { name: "Volume Up", vk: 0xAF },
+
+                    // Browser Keys
+                    { name: "Browser Back", vk: 0xA6 },
+                    { name: "Browser Forward", vk: 0xA7 },
+                    { name: "Browser Refresh", vk: 0xA8 },
+                    { name: "Browser Stop", vk: 0xA9 },
+                    { name: "Browser Search", vk: 0xAA },
+                    { name: "Browser Favorites", vk: 0xAB },
+                    { name: "Browser Home", vk: 0xAC },
+
+                    // IME Keys
+                    { name: "IME Kana Mode", vk: 0x15 },
+                    { name: "IME Hangul Mode", vk: 0x15 }, // Same as Kana Mode
+                    { name: "IME Junja Mode", vk: 0x17 },
+                    { name: "IME Final Mode", vk: 0x18 },
+                    { name: "IME Hanja Mode", vk: 0x19 },
+                    { name: "IME Kanji Mode", vk: 0x19 }, // Same as Hanja Mode
+
+                    // Misc Keys
+                    { name: "Sleep", vk: 0x5F },
+                    { name: "Clear", vk: 0x0C },
+                    { name: "Zoom", vk: 0xFB },
+                    { name: "OEM Clear", vk: 0xFE }
+                ]
+
+            };
+
+            function createRow(row = {}) {
+                const $row = $('<tr></tr>');
+
+                // Trigger Type Dropdown
+                const $triggerTypeDropdown = $('<select style="width: 80px;"></select>')
+                    .append('<option value="text">Text</option>')
+                    .append('<option value="number">Number</option>')
+                    .val(row.triggerType || 'text');
+
+                const $triggerInput = $('<input type="text" style="width: 200px;" placeholder="Trigger Value">').val(row.trigger || '');
+
+                // Modifier Dropdown
+                const $modifierDropdown = $('<select></select>');
+                $modifierDropdown.append('<option value="">(None)</option>'); // Add an empty option
+                keyMappings.modifiers.forEach(modifier => {
+                    $modifierDropdown.append(`<option value="${modifier.name}">${modifier.name}</option>`);
+                });
+                $modifierDropdown.val(row.modifiers || '');
+
+                // Key Dropdown
+                const $keyDropdown = $('<select></select>');
+                keyMappings.mainKeys.forEach(key => {
+                    $keyDropdown.append(`<option value="${key.name}">${key.name}</option>`);
+                });
+                $keyDropdown.val(row.key || 'A');
+
+                const $removeButton = $('<button style="margin-left: 10px;">Remove</button>').on('click', function () {
+                    $row.remove();
+                });
+
+                $row.append($('<td></td>').append($triggerTypeDropdown))
+                    .append($('<td></td>').append($triggerInput))
+                    .append($('<td></td>').append($modifierDropdown))
+                    .append($('<td></td>').append($keyDropdown))
+                    .append($('<td></td>').append($removeButton));
+
+                return $row;
+            }
+
+
+            function populateTable() {
+                $keyTable.find('tbody').empty();
+                (node.keys || []).forEach(row => {
+                    $keyTable.find('tbody').append(createRow(row));
+                });
+            }
+
+            $('#add-row-button').on('click', function () {
+                const newRow = { triggerType: 'text', trigger: '', modifiers: 'CTRL', key: 'A' };
+                const $newRow = createRow(newRow);
+                $keyTable.find('tbody').append($newRow);
+            });
+
+            $('#save-button').on('click', function () {
+                const newKeys = []; // Start fresh for each save
+                $keyTable.find('tbody tr').each(function () {
+                    const $row = $(this);
+                    const triggerType = $row.find('select:eq(0)').val();
+                    const trigger = $row.find('input:eq(0)').val();
+                    const modifiers = $row.find('select:eq(1)').val();
+                    const key = $row.find('select:eq(2)').val();
+
+                    if (trigger && key) {
+                        newKeys.push({ triggerType, trigger, modifiers: modifiers || '', key });
+                    } else {
+                        console.warn(`Row with trigger "${trigger}" has invalid data and will not be saved.`);
+                    }
+                });
+
+                console.log('Saving keys:', newKeys);
+                node.keys = newKeys;
+
+                // Emit a change event to trigger reinitialization in the backend
+                RED.events.emit('nodes:change', node);
+
+                // Trigger a save operation and reload
+                RED.nodes.dirty(true); // Mark the flow as dirty to indicate changes
+                RED.nodes.deploy(); // Optional: This forces Node-RED to reload the flow
+            });
+
+
+
+
+            populateTable();
+        },
+    });
+</script>
+
+<script type="text/html" data-template-name="voxta-keys">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <table id="node-input-keyTable" style="width: 100%; border: 1px solid #ddd; border-spacing: 0;">
+            <thead>
+                <tr>
+                    <th style="width: 10%; text-align: left;">Type</th>
+                    <th style="width: 25%; text-align: left;">Trigger</th>
+                    <th style="width: 25%; text-align: left;">Modifiers</th>
+                    <th style="width: 25%; text-align: left;">Key</th>
+                    <th style="width: 15%; text-align: left;">Actions</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button id="add-row-button" style="margin-top: 10px;">Add Row</button>
+        <button id="save-button" style="margin-top: 10px; margin-left: 10px;">Save</button>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="voxta-keys">
+    <p>The Voxta Keys node maps incoming triggers (numbers or text) to keystrokes and outputs them in VK code format.</p>
+    <p>Configure each row with a trigger, modifier combination, and key.</p>
+</script>

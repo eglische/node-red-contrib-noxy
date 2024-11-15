@@ -1,0 +1,29 @@
+{
+  "name": "node-red-contrib-voxta",
+  "version": "1.0.0",
+  "description": "Voxta Nodes Package",
+  "dependencies": {
+       "node-red": "^3.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eglische/voxta.git"
+  },
+  "keywords": [
+    "node-red",
+    "voxta",
+    "messages",
+    "actions",
+    "keys",
+    "key"
+  ],
+  "node-red": {
+    "nodes": {
+      "voxta-keys": "voxta-keys.js",
+      "voxta-message": "voxta-messages.js",
+      "voxta-actions": "voxta-actions.js"
+    }
+  },
+  "author": "Yeti_CH",
+  "license": "CC-BY-NC-4.0"
+}
