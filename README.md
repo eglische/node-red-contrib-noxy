@@ -5,6 +5,7 @@ A collection of custom Node-RED nodes designed for easy integration between **Vo
 1. **Voxta Actions**: Register actions with Voxta.
 2. **Voxta Messages**: Send messages to Voxta.
 3. **Voxta Keys**: Send VK formatted instructions for triggering local keystrokes.
+4. **Noxy Sequencer**: Create a sequence of events with or without fixed or random delays that can be stopped and reset at any time
 
 ## Overview
 
