@@ -1,0 +1,188 @@
+<script type="text/javascript">
+    console.log('Script loaded!');
+    RED.nodes.registerType('noxy-sequencer', {
+    category: 'function',
+    color: '#ff6961',
+    defaults: {
+        name: { value: '' },
+        sequence: { value: [] },
+        outputs: { value: 1 } // Added outputs to defaults for persistence
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'noxyred.png',
+    label: function () {
+        return this.name || 'Noxy Sequencer';
+    },
+    oneditprepare: function () {
+        const node = this;
+        const $sequenceTable = $('#node-input-sequenceTable');
+
+        function createElement(entry) {
+            const $row = $('<div></div>')
+                .addClass('sequence-element')
+                .css('display', 'flex')
+                .css('align-items', 'center')
+                .css('margin-bottom', '10px');
+
+            // Drag handle for rearranging elements
+            const $dragHandle = $('<div class="drag-handle" style="cursor: grab; margin-right: 10px;">☰</div>');
+
+            // Dropdown for type (Output or Delay)
+            const $typeDropdown = $('<select class="sequence-type" style="width: 50px; margin-right: 10px;"></select>')
+                .append('<option value="output">Output</option>')
+                .append('<option value="delay">Delay</option>')
+                .val(entry.type || 'output')
+                .on('change', function () {
+                    $outputFields.toggle($(this).val() === 'output');
+                    $delayFields.toggle($(this).val() === 'delay');
+                    updateOutputs();
+                });
+
+            // Dropdown for output type
+            const $outputTypeDropdown = $('<select class="output-type" style="width: 50px; margin-right: 10px;"></select>')
+                .append('<option value="string">String</option>')
+                .append('<option value="boolean">Boolean</option>')
+                .append('<option value="number">Number</option>')
+                .append('<option value="json">JSON</option>')
+                .val(entry.outputType || 'string')
+                .toggle(entry.type === 'output');
+
+            // Field for output value
+            const $outputValueField = $('<input type="text" class="sequence-value" style="flex: 1; margin-right: 10px;" placeholder="Output Value">')
+                .val(entry.value || '')
+                .toggle(entry.type === 'output');
+
+            // Delay configuration
+            const $delayFields = $('<div class="delay-fields" style="display: flex; align-items: center; margin-right: 10px;"></div>')
+                .append('<span>From:</span>')
+                .append($('<input type="number" class="delay-from" style="width: 100px; margin-left: 5px; margin-right: 5px;">').val(entry.from || ''))
+                .append('<span>To:</span>')
+                .append($('<input type="number" class="delay-to" style="width: 100px; margin-left: 5px; margin-right: 5px;">').val(entry.to || ''))
+                .append(
+                    $('<select class="delay-unit" style="width: 50px;"></select>')
+                        .append('<option value="ms">ms</option>')
+                        .append('<option value="seconds">s</option>')
+                        .append('<option value="minutes">m</option>')
+                        .val(entry.unit || 'ms')
+                )
+                .toggle(entry.type === 'delay');
+
+            // Remove button
+            const $removeButton = $('<button class="delete-element" style="margin-left: 10px;">Remove</button>').on('click', function () {
+                $row.remove();
+                updateOutputs();
+            });
+
+            $row.append($dragHandle)
+                .append($typeDropdown)
+                .append($outputTypeDropdown)
+                .append($outputValueField)
+                .append($delayFields)
+                .append($removeButton);
+
+            return $row;
+        }
+
+        function populateTable() {
+            $sequenceTable.empty();
+            (node.sequence || []).forEach(entry => {
+                $sequenceTable.append(createElement(entry));
+            });
+            makeTableSortable();
+        }
+
+        function updateOutputs() {
+            let outputCount = 0;
+            $sequenceTable.find('.sequence-element').each(function () {
+                if ($(this).find('.sequence-type').val() === 'output') {
+                    outputCount++;
+                }
+            });
+            node.outputs = outputCount > 0 ? outputCount : 1;
+            node.dirty = true;
+        }
+
+        function makeTableSortable() {
+            $sequenceTable.sortable({
+                handle: '.drag-handle',
+                update: function () {
+                    updateOutputs();
+                }
+            });
+        }
+
+        // Add event listeners
+        $('#add-output-button').on('click', function () {
+            const newEntry = { type: 'output', value: '', outputType: 'string' };
+            $sequenceTable.append(createElement(newEntry));
+            updateOutputs();
+        });
+
+        $('#add-delay-button').on('click', function () {
+            const newEntry = { type: 'delay', from: '', to: '', unit: 'ms' };
+            $sequenceTable.append(createElement(newEntry));
+            updateOutputs();
+        });
+
+        $('#save-button').on('click', function () {
+            const newSequence = [];
+            let outputCount = 0;
+            $sequenceTable.find('.sequence-element').each(function () {
+                const $row = $(this);
+                const type = $row.find('.sequence-type').val();
+                if (type === 'output') {
+                    outputCount++;
+                    newSequence.push({
+                        type: 'output',
+                        outputType: $row.find('.output-type').val(),
+                        value: $row.find('.sequence-value').val()
+                    });
+                } else if (type === 'delay') {
+                    newSequence.push({
+                        type: 'delay',
+                        from: $row.find('.delay-from').val(),
+                        to: $row.find('.delay-to').val(),
+                        unit: $row.find('.delay-unit').val()
+                    });
+                }
+            });
+            node.sequence = newSequence;
+            node.outputs = outputCount > 0 ? outputCount : 1;
+
+            // Mark the node as dirty and trigger save
+            RED.events.emit('nodes:change', node);
+            RED.nodes.dirty(true);
+            RED.editor.validateNode(node);
+        });
+
+        $('#refresh-button').on('click', function () {
+            populateTable();
+        });
+
+        // Populate table on load
+        populateTable();
+    },
+});
+</script>
+
+<script type="text/html" data-template-name="noxy-sequencer">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <table id="node-input-sequenceTable" style="width: 100%; border: 1px solid #ddd; border-spacing: 0;"></table>
+        <div style="margin-top: 10px;">
+            <button id="add-output-button" style="margin-right: 10px;">Add Output</button>
+            <button id="add-delay-button" style="margin-right: 10px;">Add Delay</button>
+            <button id="save-button" style="margin-right: 10px;">Save</button>
+            <button id="refresh-button">Refresh</button>
+        </div>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="noxy-sequencer">
+    <p>The Noxy Sequencer node allows you to set a sequence of outputs and delays.</p>
+    <p>Each sequence item can either be an "Output" with a message or a "Delay" that waits before executing the next item.</p>
+</script>

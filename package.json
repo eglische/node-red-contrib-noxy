@@ -21,7 +21,8 @@
     "nodes": {
       "voxta-keys": "voxta-keys.js",
       "voxta-message": "voxta-messages.js",
-      "voxta-actions": "voxta-actions.js"
+      "voxta-actions": "voxta-actions.js",
+      "noxy-sequencer": "noxy-sequencer.js"
     }
   },
   "author": "Yeti_CH",
