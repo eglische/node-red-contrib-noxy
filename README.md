@@ -72,6 +72,6 @@ Features:
 
 To install the node-red-contrib-noxy in Node-RED:
 
-```sh
-cd ~/.node-red
-npm install node-red-contrib-voxta
+- Download the as a ZIP file
+- create a folder like: \docker-stack\nodered\data\node_modules\node-red-contrib-noxy
+- copy content of the ZIP file into this folder
