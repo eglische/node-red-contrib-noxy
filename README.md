@@ -48,7 +48,7 @@ Features:
 **Sequential Execution:** The node processes each element in the defined sequence, executing them one by one, until the end is reached.
 
 **Configurable** Elements:
-- **Output Action:** Sends a specified message to the output. Each "output" action creates a corresponding output port.
+- **Output Action:** Sends a specified message to the output. Use a switch node to route the "output" action as needed.
 - You can configure the output type as a string, number, boolean, or JSON.
 - The value to be sent can also be customized, making it flexible for various use cases.
 
@@ -57,16 +57,10 @@ Features:
 - Time units available are milliseconds (ms), seconds (s), or minutes (min).
 
 **Stop Functionality:**
-- If the sequencer receives a message payloada of "stop!", the current sequence is immediately terminated, and the node resets to the beginning.
+- If the sequencer receives a message payload of "stop!", the current sequence is immediately terminated, and the node resets to the beginning.
 - This is useful for stopping a sequence mid-execution, effectively resetting the state.
 
 **Visual Representation:** Each sequence element (output or delay) can be added, edited, or reordered visually. The interface allows easy dragging and dropping of elements to arrange the sequence as desired.
-
-**Live Status Feedback:** The node provides real-time status updates, such as:
-- "Executing Index X": Indicates the current element being processed.
-- "Wait for X ms": Shows the remaining delay before moving to the next action.
-- "Stopped": Displays when the sequence has been stopped due to a "stop!" message.
-- "Sequence completed": Indicates that all sequence elements have been processed.
 
 ## Installation
 
