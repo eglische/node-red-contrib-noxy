@@ -75,3 +75,6 @@ To install the node-red-contrib-noxy in Node-RED:
 - Download the as a ZIP file
 - create a folder like: \docker-stack\nodered\data\node_modules\node-red-contrib-noxy
 - copy content of the ZIP file into this folder
+- restart the Docker Stack or Node-Red instance in Docker Desktop to load the new integration
+
+Note: If you install a new node over the palette, you got to repeat the steps. Once the Version is finalized it will be integrated so you don't have to, but for now it's a "WIP"
