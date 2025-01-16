@@ -15,13 +15,15 @@
     "messages",
     "actions",
     "keys",
-    "key"
+    "key",
+    "context"
   ],
   "node-red": {
     "nodes": {
       "voxta-keys": "voxta-keys.js",
       "voxta-message": "voxta-messages.js",
       "voxta-actions": "voxta-actions.js",
+      "Voxy-context": "voxta-context.js",
       "noxy-sequencer": "noxy-sequencer.js"
     }
   },

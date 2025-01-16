@@ -1,0 +1,147 @@
+<script type="text/javascript">
+    RED.nodes.registerType('voxta-context', {
+        category: 'Voxta',
+        color: '#aec6cf', // Pastel Blue
+        defaults: {
+            name: { value: "" },
+            contexts: { value: [] }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: "font-awesome/fa-comment",
+        label: function () {
+            return this.name || "voxta-context";
+        },
+        oneditprepare: function () {
+            var node = this;
+            
+            function refreshContextDropdown() {
+                let dropdown = $("#node-input-contextKey");
+                dropdown.empty();
+                node.contexts.forEach((context, index) => {
+                    dropdown.append(new Option(context.Name, index));
+                });
+                dropdown.trigger('change');
+            }
+
+            $("#add-context").click(function () {
+                let newContext = {
+                    Name: "New Context",
+                    Text: "Enter description here",
+                    Disabled: false,
+                    SetFlags: []
+                };
+                node.contexts.push(newContext);
+                refreshContextDropdown();
+            });
+
+            $("#remove-context").click(function () {
+                let dropdown = $("#node-input-contextKey");
+                let selectedIndex = dropdown.prop("selectedIndex");
+                if (selectedIndex >= 0) {
+                    node.contexts.splice(selectedIndex, 1);
+                    refreshContextDropdown();
+                }
+            });
+
+            $("#node-input-contextKey").on("change", function () {
+                let selectedIndex = $(this).val();
+                if (selectedIndex >= 0 && node.contexts[selectedIndex]) {
+                    $("#node-input-contextName").val(node.contexts[selectedIndex].Name);
+                    $("#node-input-contextText").val(node.contexts[selectedIndex].Text);
+                    $("#node-input-enabled").prop("checked", !node.contexts[selectedIndex].Disabled);
+                    $("#node-input-setFlags").val(node.contexts[selectedIndex].SetFlags ? node.contexts[selectedIndex].SetFlags.join(', ') : "");
+                }
+            });
+
+            $("#node-input-contextName, #node-input-contextText, #node-input-enabled, #node-input-setFlags").on("input change", function () {
+                let selectedIndex = $("#node-input-contextKey").val();
+                if (selectedIndex >= 0 && node.contexts[selectedIndex]) {
+                    node.contexts[selectedIndex].Name = $("#node-input-contextName").val();
+                    node.contexts[selectedIndex].Text = $("#node-input-contextText").val();
+                    node.contexts[selectedIndex].Disabled = !$("#node-input-enabled").prop("checked");
+                    node.contexts[selectedIndex].SetFlags = $("#node-input-setFlags").val().split(',').map(f => f.trim()).filter(f => f);
+                }
+            });
+            
+            refreshContextDropdown();
+        },
+        oneditsave: function () {
+            var node = this;
+            let updatedContexts = [];
+            $("#node-input-contextKey option").each(function (index) {
+                updatedContexts.push(node.contexts[index]);
+            });
+            node.contexts = updatedContexts;
+            node.dirty = true;
+            node.changed(); // Emit dirty state
+        },
+        oninput: function (msg) {
+            var node = this;
+            let incomingText = msg.payload.toString().trim();
+            let disableContext = incomingText.endsWith("!");
+            if (disableContext) {
+                incomingText = incomingText.slice(0, -1);
+            }
+            
+            let matchingContext = node.contexts.find(ctx => ctx.Name === incomingText);
+            if (matchingContext) {
+                msg.payload = {
+                    ContextKey: matchingContext.Name,
+                    Contexts: [{
+                        Name: matchingContext.Name,
+                        Text: matchingContext.Text,
+                        Disabled: disableContext
+                    }]
+                };
+                if (matchingContext.SetFlags && matchingContext.SetFlags.length > 0) {
+                    msg.payload.SetFlags = matchingContext.SetFlags;
+                }
+                node.send(msg);
+            }
+        }
+    });
+</script>
+
+
+
+<script type="text/html" data-template-name="voxta-context">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Node Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-contextKey"><i class="fa fa-key"></i> Context Key</label>
+        <select id="node-input-contextKey"></select>
+        <button id="add-context">+</button>
+        <button id="remove-context">-</button>
+    </div>
+    <div class="form-row">
+        <label for="node-input-contextName"><i class="fa fa-font"></i> Context Name</label>
+        <input type="text" id="node-input-contextName" placeholder="Enter Context Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-contextText"><i class="fa fa-edit"></i> Description</label>
+        <textarea id="node-input-contextText" style="width:100%; height:80px;"></textarea>
+    </div>
+    <div class="form-row">
+        <label for="node-input-enabled"><i class="fa fa-toggle-on"></i> Enabled</label>
+        <input type="checkbox" id="node-input-enabled">
+    </div>
+    <div class="form-row">
+        <label for="node-input-setFlags"><i class="fa fa-flag"></i> Flags</label>
+        <input type="text" id="node-input-setFlags" placeholder="Optional flag">
+    </div>
+    <div class="form-row" style="text-align: right; margin-top: 10px;">
+        <button id="save-node" class="red-ui-button">Save</button>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="voxta-context">
+    <p>Manages context keys for Voxta.</p>
+    <p><strong>Context Key:</strong> Unique key for context entries.</p>
+    <p><strong>Context Name:</strong> Identifies the context.</p>
+    <p><strong>Description:</strong> The actual context message.</p>
+    <p><strong>Enabled:</strong> Determines if the context is active.</p>
+    <p><strong>Flags:</strong> Optional field to add custom flags.</p>
+</script>
