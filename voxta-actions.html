@@ -1,196 +1,247 @@
 <script type="text/javascript">
-    RED.nodes.registerType('voxta-actions', {
-        category: 'Voxta',
-        color: '#ff6961',
-        defaults: {
-            name: { value: '' },
-            index: { value: 1 },
-            actions: { value: [] },
-        },
-        inputs: 1,
-        outputs: 1,
-        icon: 'noxyred.png',
-        label: function () {
-            return this.name || 'Voxta Actions';
-        },
-        oneditprepare: function () {
-            const node = this;
+RED.nodes.registerType('voxta-actions', {
+    category: 'Voxta',
+    color: '#ff6961',
+    defaults: {
+        name: { value: '' },
+        index: { value: 1 },
+        actions: { value: [] }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'noxyred.png',
+    label: function () {
+        return this.name || 'Voxta Actions';
+    },
+    oneditprepare: function () {
+        const node = this;
 
-            const $actionDropdown = $('#node-input-actionDropdown');
-            const $typeDropdown = $('#node-input-type');
-            const $actionName = $('#node-input-actionName');
-            const $description = $('#node-input-description');
-            const $layerDropdown = $('#node-input-layer');
-            const $timingDropdown = $('#node-input-timing');
-            const $setFlags = $('#node-input-setFlags');
-            const $secret = $('#node-input-secret');
-            const $note = $('#node-input-note');
-            const $cancelReply = $('#node-input-cancelReply');
-            const $addLayer = $('#add-layer');
-            const $removeLayer = $('#remove-layer');
+        const $dropdown = $('#node-input-actionDropdown');
+        const $name = $('#node-input-actionName');
+        const $desc = $('#node-input-description');
+        const $layer = $('#node-input-layer');
+        const $timing = $('#node-input-timing');
+        const $flags = $('#node-input-setFlags');
+        const $secret = $('#node-input-secret');
+        const $note = $('#node-input-note');
+        const $cancelReply = $('#node-input-cancelReply');
+        const $argsContainer = $('#arguments-container');
 
-            function loadSelectedAction() {
-                const selectedIndex = $actionDropdown.val();
-                if (node.actions && node.actions[selectedIndex]) {
-                    const action = node.actions[selectedIndex];
-                    $typeDropdown.val(action.flag || '');
-                    $actionName.val(action.name || '');
-                    $description.val(action.description || '');
-                    $layerDropdown.val(action.layer || 'default');
-                    $timingDropdown.val(action.timing || 'AfterAssistantMessage');
-                    $setFlags.val((action.setFlags || []).join(', '));
-                    $secret.val(action.secret || '');
-                    $note.val(action.note || '');
-                    $cancelReply.prop('checked', !!action.cancelReply);
-                }
-            }
+        const $addAction = $('#add-new-action');
+        const $removeAction = $('#remove-action');
+        const $addLayer = $('#add-layer');
+        const $removeLayer = $('#remove-layer');
+        const $addArg = $('#add-argument');
+        const $save = $('#save-button');
 
-            function populateDropdowns() {
-                $actionDropdown.empty();
-                (node.actions || []).forEach((action, index) => {
-                    $actionDropdown.append(`<option value="${index}">${action.name || `Action ${index + 1}`}</option>`);
+        function renderArguments(args) {
+            $argsContainer.empty();
+            args.forEach((arg, i) => {
+                const row = $(
+                    `<div class="argument-row">
+                        <input type="text" class="arg-name" placeholder="name" value="${arg.name || ''}" />
+                        <textarea class="arg-desc" placeholder="description">${arg.description || ''}</textarea>
+                        <button type="button" class="remove-arg">–</button>
+                    </div>`
+                );
+                row.find('.remove-arg').on('click', () => {
+                    node.actions[$dropdown.val()].arguments.splice(i, 1);
+                    renderArguments(node.actions[$dropdown.val()].arguments);
+                    $save.click();
                 });
+                $argsContainer.append(row);
+            });
+        }
 
-                // Populate Layer Dropdown with existing layers and ensure "default" exists
-                const layers = [...new Set((node.actions || []).map(a => a.layer || 'default'))];
-                if (!layers.includes('default')) layers.unshift('default');
-                $layerDropdown.empty();
-                layers.forEach(layer => {
-                    $layerDropdown.append(`<option value="${layer}">${layer}</option>`);
-                });
+        function loadAction() {
+            const idx = $dropdown.val();
+            const action = node.actions[idx];
+            if (!action) return;
+
+            $name.val(action.name || '');
+            $desc.val(action.description || '');
+            $layer.val(action.layer || 'default');
+            $timing.val(action.timing || 'AfterAssistantMessage');
+            $flags.val((action.setFlags || []).join(', '));
+            $secret.val(action.secret || '');
+            $note.val(action.note || '');
+            $cancelReply.prop('checked', !!action.cancelReply);
+            renderArguments(action.arguments || []);
+        }
+
+        function populateDropdown() {
+            $dropdown.empty();
+            (node.actions || []).forEach((a, i) => {
+                $dropdown.append(`<option value="${i}">${a.name || `Action ${i + 1}`}</option>`);
+            });
+        }
+
+        function populateLayers() {
+            const layers = [...new Set((node.actions || []).map(a => a.layer || 'default'))];
+            if (!layers.includes('default')) layers.unshift('default');
+            $layer.empty();
+            layers.forEach(l => $layer.append(`<option value="${l}">${l}</option>`));
+        }
+
+        function saveAction() {
+            const idx = $dropdown.val();
+            const args = [];
+            $argsContainer.find('.argument-row').each(function () {
+                const name = $(this).find('.arg-name').val().trim();
+                const desc = $(this).find('.arg-desc').val().trim();
+                if (name) args.push({ name, type: 'String', required: true, description: desc });
+            });
+
+            const flags = $flags.val().split(/[;,]/).map(f => f.trim()).filter(Boolean);
+
+            const action = {
+                name: $name.val(),
+                description: $desc.val(),
+                layer: $layer.val() || 'default',
+                timing: $timing.val() || 'AfterAssistantMessage',
+                setFlags: flags,
+                secret: $secret.val(),
+                note: $note.val(),
+                cancelReply: $cancelReply.prop('checked'),
+                arguments: args
+            };
+
+            node.actions[idx] = action;
+            RED.nodes.dirty(true);
+            RED.nodes.sendUpdate(node, { actions: node.actions });
+            populateDropdown();
+            $dropdown.val(idx);
+        }
+
+        $dropdown.on('change', () => {
+            saveAction();
+            loadAction();
+        });
+
+        $addAction.on('click', () => {
+            node.actions.push({ arguments: [] });
+            populateDropdown();
+            const idx = node.actions.length - 1;
+            $dropdown.val(idx);
+            loadAction();
+        });
+
+        $removeAction.on('click', () => {
+            const idx = +$dropdown.val();
+            if (idx === 0) {
+                RED.notify("Cannot delete the first action.", "error");
+                return;
             }
+            node.actions.splice(idx, 1);
+            populateDropdown();
+            $dropdown.val(Math.max(0, idx - 1));
+            loadAction();
+        });
 
-            $actionDropdown.on('change', function () {
-                loadSelectedAction();
-            });
+        $addLayer.on('click', () => {
+            const newLayer = prompt("New layer name?");
+            if (newLayer && !$layer.find(`option[value="${newLayer}"]`).length) {
+                $layer.append(`<option value="${newLayer}">${newLayer}</option>`);
+                $layer.val(newLayer);
+            }
+        });
 
-            $('#save-button').on('click', function () {
-                const selectedIndex = $actionDropdown.val();
-                const setFlagsArray = $setFlags.val().split(/[;,]/).map(item => item.trim()).filter(Boolean);
-                const newAction = {
-                    name: $actionName.val(),
-                    description: $description.val(),
-                    layer: $layerDropdown.val() || 'default',
-                    timing: $timingDropdown.val() || 'AfterAssistantMessage',
-                    setFlags: setFlagsArray,
-                    secret: $secret.val(),
-                    note: $note.val(),
-                    cancelReply: $cancelReply.prop('checked'),
-                };
-                
-                if (node.actions[selectedIndex]) {
-                    node.actions[selectedIndex] = newAction;
-                } else {
-                    node.actions.push(newAction);
-                }
-                RED.nodes.dirty(true);
-                RED.nodes.sendUpdate(node, { actions: node.actions });
-                populateDropdowns();
-            });
+        $removeLayer.on('click', () => {
+            const sel = $layer.val();
+            if (sel === 'default') {
+                RED.notify("Cannot remove 'default' layer.", "error");
+                return;
+            }
+            $layer.find(`option[value="${sel}"]`).remove();
+            $layer.val('default');
+        });
 
-            $('#add-new-action').on('click', function () {
-                node.actions.push({});
-                populateDropdowns();
-                $actionDropdown.val(node.actions.length - 1);
-                loadSelectedAction();
-            });
+        $addArg.on('click', () => {
+            const name = prompt("Argument name?");
+            if (!name) return;
+            const idx = +$dropdown.val();
+            if (!node.actions[idx].arguments) node.actions[idx].arguments = [];
+            node.actions[idx].arguments.push({ name, type: 'String', required: true, description: '' });
+            renderArguments(node.actions[idx].arguments);
+            $save.click();
+        });
 
-            $('#remove-action').on('click', function () {
-                const selectedIndex = $actionDropdown.val();
-                if (selectedIndex == 0) {
-                    RED.notify("Cannot delete the first action. You can only modify it.", "error");
-                    return;
-                }
-                if (selectedIndex !== null && node.actions[selectedIndex]) {
-                    node.actions.splice(selectedIndex, 1);
-                    populateDropdowns();
-                    $actionDropdown.val(Math.max(0, selectedIndex - 1));
-                    loadSelectedAction();
-                }
-            });
+        $save.on('click', () => {
+            saveAction();
+        });
 
-            $addLayer.on('click', function () {
-                const newLayer = prompt("Enter a new layer name:");
-                if (newLayer && !$layerDropdown.find(`option[value="${newLayer}"]`).length) {
-                    $layerDropdown.append(`<option value="${newLayer}">${newLayer}</option>`);
-                    $layerDropdown.val(newLayer);
-                }
-            });
-
-            $removeLayer.on('click', function () {
-                const selectedLayer = $layerDropdown.val();
-                if (selectedLayer === 'default') {
-                    RED.notify("Cannot remove the default layer.", "error");
-                    return;
-                }
-                $layerDropdown.find(`option[value="${selectedLayer}"]`).remove();
-                $layerDropdown.val('default');
-            });
-
-            populateDropdowns();
-            loadSelectedAction();
-        },
-    });
+        populateDropdown();
+        populateLayers();
+        loadAction();
+    }
+});
 </script>
+
+
+
 <script type="text/html" data-template-name="voxta-actions">
-    <div class="form-row">
-        <label for="node-input-name" style="width: 120px;"><i class="fa fa-tag"></i> Name</label>
-        <input type="text" id="node-input-name" placeholder="Name">
-    </div>
-    <div class="form-row">
-        <label for="node-input-actionDropdown" style="width: 120px;"><i class="fa fa-list"></i> Actions</label>
-        <select id="node-input-actionDropdown"></select>
-        <button id="add-new-action">+</button>
-        <button id="remove-action">&ndash;</button>
-    </div>
-    <div class="form-row">
-        <label for="node-input-actionName" style="width: 120px;"><i class="fa fa-tag"></i> Action Name</label>
-        <input type="text" id="node-input-actionName" placeholder="Action Name">
-    </div>
-    <div class="form-row">
-        <label for="node-input-description" style="width: 120px;"><i class="fa fa-file-text"></i> Description</label>
-        <textarea id="node-input-description" placeholder="Action Description"></textarea>
-    </div>
-    <div class="form-row">
-        <label for="node-input-layer" style="width: 120px;"><i class="fa fa-layer-group"></i> Layer</label>
-        <select id="node-input-layer"></select>
-        <button id="add-layer">+</button>
-        <button id="remove-layer">&ndash;</button>
-    </div>
-    <div class="form-row">
-        <label for="node-input-timing" style="width: 120px;"><i class="fa fa-clock"></i> Timing</label>
-        <select id="node-input-timing">
-            <option value="AfterUserMessage">AfterUserMessage</option>
-            <option value="BeforeAssistantMessage">BeforeAssistantMessage</option>
-            <option value="AfterAssistantMessage" selected>AfterAssistantMessage</option>
-            <option value="Manual">Manual</option>
-            <option value="Button">Button</option>
-            <option value="AfterAnyMessage">AfterAnyMessage</option>
-        </select>
-    </div>
-    <div class="form-row">
-        <label for="node-input-setFlags" style="width: 120px;"><i class="fa fa-flag"></i> Set Flags</label>
-        <input type="text" id="node-input-setFlags" placeholder="Flags separated by , or ;">
-    </div>
-    <div class="form-row">
-        <label for="node-input-secret" style="width: 120px;"><i class="fa fa-lock"></i> Secret</label>
-        <textarea id="node-input-secret" placeholder="Secret Message"></textarea>
-    </div>
-    <div class="form-row">
-        <label for="node-input-note" style="width: 120px;"><i class="fa fa-sticky-note"></i> Note</label>
-        <textarea id="node-input-note" placeholder="Optional Note"></textarea>
-    </div>
-    <div class="form-row">
-        <label for="node-input-cancelReply" style="width: 120px;"><i class="fa fa-ban"></i> Cancel Reply</label>
-        <input type="checkbox" id="node-input-cancelReply">
-    </div>
-    <div class="form-tips">
-        <button id="save-button">Save</button>
-        <button id="close-button">Close</button>
-    </div>
+<div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Node Name">
+</div>
+<div class="form-row">
+    <label for="node-input-actionDropdown"><i class="fa fa-list"></i> Actions</label>
+    <select id="node-input-actionDropdown"></select>
+    <button id="add-new-action">+</button>
+    <button id="remove-action">–</button>
+</div>
+<div class="form-row">
+    <label for="node-input-actionName"><i class="fa fa-tag"></i> Action Name</label>
+    <input type="text" id="node-input-actionName">
+</div>
+<div class="form-row">
+    <label for="node-input-description"><i class="fa fa-file-text"></i> Description</label>
+    <textarea id="node-input-description"></textarea>
+</div>
+<div class="form-row">
+    <label for="node-input-layer"><i class="fa fa-layer-group"></i> Layer</label>
+    <select id="node-input-layer"></select>
+    <button id="add-layer">+</button>
+    <button id="remove-layer">–</button>
+</div>
+<div class="form-row">
+    <label><i class="fa fa-list-ul"></i> Arguments</label>
+    <div id="arguments-container"></div>
+    <button id="add-argument" type="button">+</button>
+</div>
+<div class="form-row">
+    <label for="node-input-timing"><i class="fa fa-clock"></i> Timing</label>
+    <select id="node-input-timing">
+        <option value="AfterUserMessage">AfterUserMessage</option>
+        <option value="BeforeAssistantMessage">BeforeAssistantMessage</option>
+        <option value="AfterAssistantMessage" selected>AfterAssistantMessage</option>
+        <option value="Manual">Manual</option>
+        <option value="Button">Button</option>
+        <option value="AfterAnyMessage">AfterAnyMessage</option>
+    </select>
+</div>
+<div class="form-row">
+    <label for="node-input-setFlags"><i class="fa fa-flag"></i> Set Flags</label>
+    <input type="text" id="node-input-setFlags">
+</div>
+<div class="form-row">
+    <label for="node-input-secret"><i class="fa fa-lock"></i> Secret</label>
+    <textarea id="node-input-secret"></textarea>
+</div>
+<div class="form-row">
+    <label for="node-input-note"><i class="fa fa-sticky-note"></i> Note</label>
+    <textarea id="node-input-note"></textarea>
+</div>
+<div class="form-row">
+    <label for="node-input-cancelReply"><i class="fa fa-ban"></i> Cancel Reply</label>
+    <input type="checkbox" id="node-input-cancelReply">
+</div>
+<div class="form-tips">
+    <button id="save-button">Save</button>
+    <button id="close-button">Close</button>
+</div>
 </script>
 
 <script type="text/html" data-help-name="voxta-actions">
-    <p>A node for managing and triggering JSON actions dynamically based on input.</p>
-    <p>Use this node to configure and send actions such as "add" or "remove" with detailed JSON payloads.</p>
+<p>Configure dynamic actions with arguments, layers, flags, and timing for Voxta.</p>
 </script>

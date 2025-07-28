@@ -1,9 +1,10 @@
 {
   "name": "node-red-contrib-noxy",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Voxta Nodes Package",
   "dependencies": {
-       "node-red": "^3.0.0"
+    "@microsoft/signalr": "^8.0.7",
+    "node-red": "^3.0.0"
   },
   "repository": {
     "type": "git",

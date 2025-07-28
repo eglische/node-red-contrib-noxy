@@ -1,11 +1,8 @@
-const fs = require('fs');
-
 module.exports = function (RED) {
     function VoxtaActionsNode(config) {
         RED.nodes.createNode(this, config);
         const node = this;
 
-        // Retrieve actions directly from config
         let actions = config.actions || [];
 
         function findAction(ref) {
@@ -29,11 +26,12 @@ module.exports = function (RED) {
                     Secret: action.secret || "",
                     Note: action.note || "",
                     CancelReply: !!action.cancelReply,
+                    Arguments: action.arguments || []
                 };
 
                 setTimeout(() => {
                     node.send({ payload: output });
-                }, idx * 50); // 50ms delay between messages
+                }, idx * 50);
             });
         }
 
@@ -42,7 +40,6 @@ module.exports = function (RED) {
             const isRemove = input.endsWith('!');
             const ref = isRemove ? input.slice(0, -1) : input;
 
-            // Handle layer-wide actions
             if (findActionsByLayer(ref).length > 0) {
                 const layerActions = findActionsByLayer(ref);
                 if (isRemove) {
@@ -53,7 +50,7 @@ module.exports = function (RED) {
                         };
                         setTimeout(() => {
                             node.send({ payload: output });
-                        }, idx * 50); // 50ms delay between removals
+                        }, idx * 50);
                     });
                 } else {
                     sendActions(layerActions);
@@ -61,10 +58,9 @@ module.exports = function (RED) {
                 return;
             }
 
-            // Handle individual action
             const action = findAction(ref);
             if (!action) {
-                console.error(`[ERROR] No action found for input: ${ref}`);
+                node.error(`[ERROR] No action found for input: ${ref}`);
                 return;
             }
 
@@ -79,17 +75,7 @@ module.exports = function (RED) {
             }
         });
 
-        this.on('editprepare', function () {
-            // Update node name dynamically based on selected dropdown
-            const dropdown = document.getElementById('node-input-actionDropdown');
-            dropdown.addEventListener('change', () => {
-                const selectedIndex = dropdown.selectedIndex;
-                if (actions[selectedIndex]) {
-                    const selectedAction = actions[selectedIndex];
-                    document.getElementById('node-input-name').value = selectedAction.name || '';
-                }
-            });
-        });
+        // Removed on('editprepare') - UI logic moved to HTML side
 
         this.on('close', function () {
             actions = [];
@@ -97,7 +83,5 @@ module.exports = function (RED) {
     }
 
     RED.nodes.registerType('voxta-actions', VoxtaActionsNode);
-
-    // Log to confirm registration
     console.log('Voxta Actions Node Registered');
 };
