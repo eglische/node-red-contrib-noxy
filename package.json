@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-noxy",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Voxta Nodes Package",
   "dependencies": {
     "@microsoft/signalr": "^8.0.7",
@@ -12,6 +12,7 @@
   },
   "keywords": [
     "node-red",
+    "node-red-contrib",
     "voxta",
     "messages",
     "actions",
