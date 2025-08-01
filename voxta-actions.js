@@ -1,8 +1,11 @@
+const fs = require('fs');
+
 module.exports = function (RED) {
     function VoxtaActionsNode(config) {
         RED.nodes.createNode(this, config);
         const node = this;
 
+        // Retrieve actions directly from config
         let actions = config.actions || [];
 
         function findAction(ref) {
@@ -26,12 +29,23 @@ module.exports = function (RED) {
                     Secret: action.secret || "",
                     Note: action.note || "",
                     CancelReply: !!action.cancelReply,
-                    Arguments: action.arguments || []
                 };
+                
+                if (Array.isArray(action.arguments)) {
+                    const validArgs = action.arguments.filter(arg => arg.name && arg.name.trim());
+                    if (validArgs.length > 0) {
+                        output.Arguments = validArgs.map(arg => ({
+                            name: arg.name.trim(),
+                            type: "String",
+                            required: true,
+                            description: arg.description?.trim() || ""
+                        }));
+                    }
+                }
 
                 setTimeout(() => {
                     node.send({ payload: output });
-                }, idx * 50);
+                }, idx * 50); // 50ms delay between messages
             });
         }
 
@@ -40,6 +54,7 @@ module.exports = function (RED) {
             const isRemove = input.endsWith('!');
             const ref = isRemove ? input.slice(0, -1) : input;
 
+            // Handle layer-wide actions
             if (findActionsByLayer(ref).length > 0) {
                 const layerActions = findActionsByLayer(ref);
                 if (isRemove) {
@@ -50,7 +65,7 @@ module.exports = function (RED) {
                         };
                         setTimeout(() => {
                             node.send({ payload: output });
-                        }, idx * 50);
+                        }, idx * 50); // 50ms delay between removals
                     });
                 } else {
                     sendActions(layerActions);
@@ -58,9 +73,10 @@ module.exports = function (RED) {
                 return;
             }
 
+            // Handle individual action
             const action = findAction(ref);
             if (!action) {
-                node.error(`[ERROR] No action found for input: ${ref}`);
+                console.error(`[ERROR] No action found for input: ${ref}`);
                 return;
             }
 
@@ -75,7 +91,17 @@ module.exports = function (RED) {
             }
         });
 
-        // Removed on('editprepare') - UI logic moved to HTML side
+        this.on('editprepare', function () {
+            // Update node name dynamically based on selected dropdown
+            const dropdown = document.getElementById('node-input-actionDropdown');
+            dropdown.addEventListener('change', () => {
+                const selectedIndex = dropdown.selectedIndex;
+                if (actions[selectedIndex]) {
+                    const selectedAction = actions[selectedIndex];
+                    document.getElementById('node-input-name').value = selectedAction.name || '';
+                }
+            });
+        });
 
         this.on('close', function () {
             actions = [];
@@ -83,5 +109,7 @@ module.exports = function (RED) {
     }
 
     RED.nodes.registerType('voxta-actions', VoxtaActionsNode);
-    console.log('Voxta Actions Node Registered');
+
+    // Log to confirm registration
+    console.log('Noxy Actions Registered V1.0.4');
 };
