@@ -1,6 +1,6 @@
 # node-red-contrib-noxy-v2
 
-Node-RED nodes for controlling and extending [Voxta](https://voxta.ai/) directly. Version 2 connects to Voxta over its REST API and SignalR hub: it does **not** require Noxy-Red, MQTT, or the legacy virtual-key node.
+Node-RED nodes for controlling and extending [Voxta](https://voxta.ai/) directly. Version 2 connects to Voxta over its REST API and SignalR hub: it does **not** require the now obsolete Noxy-Red route anylonger and can directly connect to Voxta.
 
 Use it to create and subscribe to chats, send messages, react to Voxta events, manage actions and context, switch services, and add a separate AI “director” to an active conversation.
 
