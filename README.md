@@ -11,6 +11,63 @@ Use it to create and subscribe to chats, send messages, react to Voxta events, m
 - A running Voxta server.
 - A configured `signalr-client` node that can connect to the Voxta server. Every Voxta node in this package uses the same client configuration.
 
+## Install Node-RED and this package
+
+Install a supported current-LTS version of Node.js before installing Node-RED. The Node-RED editor is then available at [http://localhost:1880](http://localhost:1880) after starting the runtime.
+
+### Windows
+
+1. Install Node.js LTS from [nodejs.org](https://nodejs.org/).
+2. Open PowerShell and run:
+
+   ```powershell
+   npm install -g node-red
+   node-red
+   ```
+
+3. Open `http://localhost:1880` in a browser.
+
+### macOS
+
+1. Install Node.js LTS from [nodejs.org](https://nodejs.org/) or your preferred package manager.
+2. In Terminal, run:
+
+   ```bash
+   npm install -g node-red
+   node-red
+   ```
+
+3. Open `http://localhost:1880` in a browser.
+
+### Linux
+
+1. Install Node.js LTS using your distribution's supported method.
+2. In a terminal, run:
+
+   ```bash
+   sudo npm install -g node-red
+   node-red
+   ```
+
+3. Open `http://localhost:1880` in a browser. On a server, replace `localhost` with that server's address if the Node-RED editor has been configured for network access.
+
+### Install from the Palette Manager (after npm publication)
+
+Once `node-red-contrib-noxy-v2` is published to npm, install it from the Node-RED editor:
+
+1. Open the editor menu (top right) and select **Manage palette**.
+2. Select the **Install** tab.
+3. Search for `node-red-contrib-noxy-v2`.
+4. Select **Install**, then restart Node-RED if prompted or after the installation completes.
+
+The package will then appear in the **Voxta** category of the node palette.
+
+> This v2 branch is not yet published to npm, so it will not appear in Palette Manager search yet. For development or pre-release use, install it from a local checkout in Node-RED's user directory (normally `~/.node-red`) and restart Node-RED:
+>
+> ```bash
+> npm install /absolute/path/to/node-red-contrib-noxy
+> ```
+
 ## Voxta network setup
 
 When Node-RED and Voxta run on the same machine, the normal Voxta localhost binding is sufficient.
