@@ -1,258 +1,1068 @@
 <script type="text/javascript">
-RED.nodes.registerType('voxta-actions', {
-    category: 'Voxta',
-    color: '#ff6961',
-    defaults: {
-        name: { value: '' },
-        index: { value: 1 },
-        actions: { value: [] },
-    },
-    inputs: 1,
-    outputs: 1,
-    icon: 'noxyred.png',
-    label: function () {
-        return this.name || 'Voxta Actions';
-    },
-    oneditprepare: function () {
-        const node = this;
+(function () {
+    function promptImportMode() {
+        const answer = window.prompt('Import mode: type "append" to append or "replace" to replace existing entries.', 'append');
+        if (!answer) {
+            return null;
+        }
+        const mode = answer.trim().toLowerCase();
+        return mode === 'replace' ? 'replace' : mode === 'append' ? 'append' : null;
+    }
 
-        const $actionDropdown = $('#node-input-actionDropdown');
-        const $typeDropdown = $('#node-input-type');
-        const $actionName = $('#node-input-actionName');
-        const $description = $('#node-input-description');
-        const $layerDropdown = $('#node-input-layer');
-        const $timingDropdown = $('#node-input-timing');
-        const $setFlags = $('#node-input-setFlags');
-        const $secret = $('#node-input-secret');
-        const $note = $('#node-input-note');
-        const $cancelReply = $('#node-input-cancelReply');
-        const $addLayer = $('#add-layer');
-        const $removeLayer = $('#remove-layer');
-        const $argsContainer = $('#arguments-container');
-        const $addArg = $('#add-argument');
+    function readJsonFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const parsed = JSON.parse(reader.result);
+                    if (!Array.isArray(parsed)) {
+                        reject(new Error('Expected a JSON array'));
+                        return;
+                    }
+                    resolve(parsed);
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    }
 
-        function renderArguments(args = []) {
-            $argsContainer.empty();
-            args.forEach((arg, index) => {
-                const row = $(`
-                    <div class="argument-row" style="margin-bottom: 6px;">
-                        <div style="display: flex; align-items: center;">
-                            <input type="text" class="arg-name" placeholder="Arg name" style="flex: 1; margin-right: 6px;" value="${arg.name || ''}">
-                            <button type="button" class="remove-arg">–</button>
-                        </div>
-                        <textarea class="arg-desc" placeholder="Description">${arg.description || ''}</textarea>
-                    </div>
-                `);
-                row.find('.remove-arg').on('click', function () {
-                    row.remove();
-                });
-                $argsContainer.append(row);
-            });
+    function downloadJsonFile(filename, data) {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
+    function handleImport(input, currentItems, onLoaded) {
+        const file = input.files && input.files[0];
+        if (!file) {
+            return;
+        }
+        readJsonFile(file).then((parsed) => {
+            const mode = promptImportMode();
+            if (!mode) {
+                RED.notify('Import cancelled', 'warning');
+                input.value = '';
+                return;
+            }
+            const next = mode === 'replace' ? parsed : [...currentItems(), ...parsed];
+            onLoaded(next, parsed.length);
+            input.value = '';
+        }).catch((error) => {
+            RED.notify(`Import failed: ${error.message}`, 'error');
+            input.value = '';
+        });
+    }
+
+    function createHint(text) {
+        return $('<span/>', {
+            title: text,
+            text: '?',
+            style: 'display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:999px;background:#eef2ff;color:#3b5bdb;font-size:11px;font-weight:700;cursor:help;'
+        });
+    }
+
+    function uniqueGroupId() {
+        return `group-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    }
+
+    function isGroupEntry(entry) {
+        return entry?.type === 'group' || Array.isArray(entry?.items);
+    }
+
+    function updateActionEditorState(row, collapsed) {
+        row.attr('data-collapsed', collapsed ? 'true' : 'false');
+        row.find('.node-input-action-body').toggle(!collapsed);
+        row.find('.node-input-action-toggle')
+            .text(collapsed ? 'Expand' : 'Retract')
+            .attr('title', collapsed ? 'Show advanced fields' : 'Hide advanced fields');
+    }
+
+    function updateSettingsPanelState(row, collapsed) {
+        row.attr('data-settings-collapsed', collapsed ? 'true' : 'false');
+        row.find('.node-input-action-settings-body').toggle(!collapsed);
+        row.find('.node-input-action-settings-toggle')
+            .text(collapsed ? 'Show' : 'Hide')
+            .attr('title', collapsed ? 'Show lifecycle settings' : 'Hide lifecycle settings');
+    }
+
+    function updateGroupState(row, collapsed) {
+        row.attr('data-group-collapsed', collapsed ? 'true' : 'false');
+        row.find('.node-input-group-body').toggle(!collapsed);
+        row.find('.node-input-group-toggle')
+            .text(collapsed ? 'Expand' : 'Retract')
+            .attr('title', collapsed ? 'Show group content' : 'Hide group content');
+    }
+
+
+    function captureFormValues(row) {
+        return row.find('input, textarea, select').map(function () {
+            const element = $(this);
+            const type = String(this.type || '').toLowerCase();
+            return type === 'checkbox' || type === 'radio'
+                ? { kind: 'checked', value: element.is(':checked') }
+                : { kind: 'value', value: element.val() };
+        }).get();
+    }
+
+    function restoreFormValues(row, values) {
+        row.find('input, textarea, select').each(function (index) {
+            const saved = values[index];
+            if (!saved) {
+                return;
+            }
+            const element = $(this);
+            if (saved.kind === 'checked') {
+                element.prop('checked', !!saved.value);
+                return;
+            }
+            element.val(saved.value);
+        });
+    }
+    function createArgumentEditor(argument) {
+        const row = $('<div/>', { class: 'noxy-arg-row', style: 'border:1px solid #dde3f0;border-radius:8px;padding:8px;margin-top:6px;background:#fff;' });
+        const top = $('<div/>', { style: 'display:flex;gap:6px;align-items:center;' }).appendTo(row);
+        $('<input/>', { class: 'node-input-arg-name', type: 'text', placeholder: 'Argument name', style: 'flex:1;' }).val(argument?.name || '').appendTo(top);
+        $('<select/>', { class: 'node-input-arg-type', style: 'width:120px;' })
+            .append('<option value="String">String</option>')
+            .append('<option value="Integer">Integer</option>')
+            .val(argument?.type || 'String')
+            .appendTo(top);
+        const requiredLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;white-space:nowrap;' }).appendTo(top);
+        $('<input/>', { class: 'node-input-arg-required', type: 'checkbox' }).prop('checked', argument?.required !== false).appendTo(requiredLabel);
+        $('<span/>').text('Required').appendTo(requiredLabel);
+        $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-arg-remove' }).text('Remove').appendTo(top);
+        $('<textarea/>', { class: 'node-input-arg-description', placeholder: 'Argument description', style: 'width:100%;margin-top:6px;min-height:54px;' })
+            .val(argument?.description || '')
+            .appendTo(row);
+        row.on('click', '.node-input-arg-remove', function () { row.remove(); });
+        return row;
+    }
+
+    function createActionEditor(action) {
+        const row = $('<div/>', { class: 'noxy-action-row voxta-action-item', 'data-entry-type': 'action', style: 'border:1px solid #d9deea;border-radius:10px;padding:12px;margin-bottom:10px;background:linear-gradient(180deg,#ffffff 0%,#fafbff 100%);box-shadow:0 1px 3px rgba(15,23,42,0.06);' });
+        const line1 = $('<div/>', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;' }).appendTo(row);
+        $('<div/>', { class: 'voxta-action-drag', text: '☰', style: 'cursor:move;color:#64748b;font-size:16px;line-height:30px;padding:0 4px;' }).appendTo(line1);
+        $('<input/>', { class: 'node-input-action-name', type: 'text', placeholder: 'Action name', style: 'flex:1;min-width:180px;' }).val(action?.name || '').appendTo(line1);
+        $('<input/>', { class: 'node-input-action-layer', type: 'text', placeholder: 'Layer', style: 'width:120px;' }).val(action?.layer || 'default').appendTo(line1);
+        $('<select/>', { class: 'node-input-action-timing', style: 'width:210px;' })
+            .append('<option value="AfterUserMessage">AfterUserMessage</option>')
+            .append('<option value="BeforeAssistantMessage">BeforeAssistantMessage</option>')
+            .append('<option value="AfterAssistantMessage">AfterAssistantMessage</option>')
+            .append('<option value="Manual">Manual</option>')
+            .append('<option value="Button">Button</option>')
+            .append('<option value="AfterAnyMessage">AfterAnyMessage</option>')
+            .val(action?.timing || 'AfterAssistantMessage')
+            .appendTo(line1);
+        $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-action-toggle' }).text('Retract').appendTo(line1);
+        $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-action-remove' }).text('Remove').appendTo(line1);
+
+        // Widget link & execution mode (visible when linked)
+        const widgetInfo = $('<div/>', { class: 'node-input-action-widget-info', style: 'display:flex;gap:8px;align-items:center;margin:4px 0;padding:4px 8px;border-radius:6px;background:#eef2ff;font-size:12px;flex-wrap:wrap;' }).appendTo(row);
+        const widgetBadge = $('<span/>', { style: 'color:#3b5bdb;font-weight:600;' }).text(action?.dashboardWidget ? `🔗 ${action.dashboardWidget.label || action.dashboardWidget.id}` : '').appendTo(widgetInfo);
+        $('<span/>', { style: 'color:#64748b;' }).text(action?.dashboardWidget ? `(${action.dashboardWidget.type.replace('ui_','')})` : '').appendTo(widgetInfo);
+        $('<span/>', { style: 'color:#94a3b8;margin-left:auto;cursor:help;', title: 'Internal: triggers the dashboard widget directly with no flow msg output. Both: widget + msg output. Output: msg output only, no widget trigger.' }).text('Mode:').appendTo(widgetInfo);
+        $('<select/>', { class: 'node-input-action-execution-mode', style: 'width:140px;font-size:12px;', title: 'Internal = widget only, no msg. Both = widget + msg. Output = msg only, no widget.' })
+            .append('<option value="internal">Internal only</option>')
+            .append('<option value="both">Internal + Output</option>')
+            .append('<option value="output">Output only</option>')
+            .val(action?.executionMode || 'internal')
+            .appendTo(widgetInfo);
+        const autoInjLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;margin-left:8px;white-space:nowrap;color:#3b5bdb;font-size:12px;cursor:help;', title: 'Automatically register this action in Voxta when a new chat starts or resumes.' }).appendTo(widgetInfo);
+        $('<input/>', { class: 'node-input-action-auto-inject', type: 'checkbox', title: 'Automatically register this action in Voxta when a new chat starts or resumes.' }).prop('checked', !!action?.autoInject).appendTo(autoInjLabel);
+        $('<span/>', { title: 'Automatically register this action in Voxta when a new chat starts or resumes.' }).text('Auto-inject').appendTo(autoInjLabel);
+        const unlinkBtn = $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-action-unlink', style: 'margin-left:4px;' }).text('Unlink').appendTo(widgetInfo);
+        unlinkBtn.on('click', function () {
+            row.find('.node-input-action-widget-id').val('');
+            row.find('.node-input-action-widget-type').val('');
+            row.find('.node-input-action-widget-label').val('');
+            row.find('.node-input-action-widget-tab').val('');
+            row.find('.node-input-action-widget-group').val('');
+            row.find('.node-input-action-widget-onvalue').val('');
+            row.find('.node-input-action-widget-offvalue').val('');
+            widgetBadge.text('');
+            unlinkBtn.hide();
+        });
+        if (!action?.dashboardWidget) { widgetBadge.text(''); unlinkBtn.hide(); }
+
+        // Hidden fields for widget data
+        $('<input/>', { class: 'node-input-action-widget-id', type: 'hidden' }).val(action?.dashboardWidget?.id || '').appendTo(row);
+        $('<input/>', { class: 'node-input-action-widget-type', type: 'hidden' }).val(action?.dashboardWidget?.type || '').appendTo(row);
+        $('<input/>', { class: 'node-input-action-widget-label', type: 'hidden' }).val(action?.dashboardWidget?.label || '').appendTo(row);
+        $('<input/>', { class: 'node-input-action-widget-tab', type: 'hidden' }).val(action?.dashboardWidget?.tabName || '').appendTo(row);
+        $('<input/>', { class: 'node-input-action-widget-group', type: 'hidden' }).val(action?.dashboardWidget?.groupName || '').appendTo(row);
+        $('<input/>', { class: 'node-input-action-widget-onvalue', type: 'hidden' }).val(action?.dashboardWidget?.onValue || '').appendTo(row);
+        $('<input/>', { class: 'node-input-action-widget-offvalue', type: 'hidden' }).val(action?.dashboardWidget?.offValue || '').appendTo(row);
+
+        const body = $('<div/>', { class: 'node-input-action-body' }).appendTo(row);
+
+        $('<textarea/>', { class: 'node-input-action-description', placeholder: 'Description shown to the model', style: 'width:100%;min-height:60px;margin-bottom:6px;' })
+            .val(action?.description || '')
+            .appendTo(body);
+
+        const line2 = $('<div/>', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:6px;' }).appendTo(body);
+        $('<input/>', { class: 'node-input-action-characters', type: 'text', placeholder: 'Character names (comma separated), empty = all', style: 'flex:1;', title: 'Only auto-inject this action when one of these characters is present. Leave empty to inject for any character.' })
+            .val(action?.characters || '')
+            .appendTo(line2);
+        const charLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:help;', title: 'Only auto-inject this action when one of these characters is present. Leave empty to inject for any character.' }).appendTo(line2);
+        $('<span/>', { style: 'color:#94a3b8;font-size:12px;' }).text('For character(s)').appendTo(charLabel);
+        $('<input/>', { class: 'node-input-action-flags', type: 'text', placeholder: 'Set flags, comma separated', style: 'flex:1;' })
+            .val(Array.isArray(action?.setFlags) ? action.setFlags.join(', ') : (action?.setFlags || ''))
+            .appendTo(line2);
+        const cancelLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;white-space:nowrap;' }).appendTo(line2);
+        $('<input/>', { class: 'node-input-action-cancel', type: 'checkbox' }).prop('checked', !!action?.cancelReply).appendTo(cancelLabel);
+        $('<span/>').text('Cancel reply').appendTo(cancelLabel);
+
+        $('<textarea/>', { class: 'node-input-action-secret', placeholder: 'Secret/effect text', style: 'width:100%;min-height:54px;margin-bottom:6px;' })
+            .val(action?.secret || '')
+            .appendTo(body);
+        $('<textarea/>', { class: 'node-input-action-note', placeholder: 'Optional note', style: 'width:100%;min-height:48px;margin-bottom:6px;' })
+            .val(action?.note || '')
+            .appendTo(body);
+
+        const argsWrap = $('<div/>').appendTo(body);
+        $('<div/>', { style: 'font-weight:600;margin-bottom:4px;' }).text('Arguments').appendTo(argsWrap);
+        const argsList = $('<div/>', { class: 'node-input-action-arguments' }).appendTo(argsWrap);
+        (action?.arguments || []).forEach((argument) => argsList.append(createArgumentEditor(argument)));
+        $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-add-argument', style: 'margin-top:6px;' }).text('Add argument').appendTo(argsWrap);
+
+        const settingsWrap = $('<div/>', { style: 'margin-top:10px;padding:8px;border:1px solid #e6eaf3;border-radius:8px;background:#f8faff;font-size:12px;' }).appendTo(body);
+        const settingsHeader = $('<div/>', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;' }).appendTo(settingsWrap);
+        $('<div/>', { style: 'display:flex;align-items:center;gap:6px;font-weight:600;' })
+            .append($('<span/>', { title: 'This section will automatically remove the action if triggered, either permanently or re-add it after a cooldown.', cursor: 'help' }).text('Auto Remove'))
+            .appendTo(settingsHeader);
+        $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-action-settings-toggle' }).text('Hide').appendTo(settingsHeader);
+
+        const settingsBody = $('<div/>', { class: 'node-input-action-settings-body' }).appendTo(settingsWrap);
+
+        const settingsRow = $('<div/>', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border:1px solid #dde3f0;border-radius:8px;background:#fff;font-size:12px;' }).appendTo(settingsBody);
+
+        const onceLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;white-space:nowrap;margin:0;cursor:help;', title: 'Only this specific action will be automatically removed if checked.' }).appendTo(settingsRow);
+        $('<input/>', { class: 'node-input-action-once-only', type: 'checkbox' }).prop('checked', !!action?.onceOnly).appendTo(onceLabel);
+        $('<span/>', { style: 'color:#334155;' }).text('Action').appendTo(onceLabel);
+
+        const groupLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;white-space:nowrap;margin:0;cursor:help;', title: 'All actions in the same group will be removed if one of the actions is triggered.' }).appendTo(settingsRow);
+        $('<input/>', { class: 'node-input-action-group-once', type: 'checkbox' }).prop('checked', !!action?.groupOnce).appendTo(groupLabel);
+        $('<span/>', { style: 'color:#334155;' }).text('Group').appendTo(groupLabel);
+
+        const layerLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;white-space:nowrap;margin:0;cursor:help;', title: 'All actions within the same layer will be removed if one action is triggered.' }).appendTo(settingsRow);
+        $('<input/>', { class: 'node-input-action-layer-once', type: 'checkbox' }).prop('checked', !!action?.layerOnce).appendTo(layerLabel);
+        $('<span/>', { style: 'color:#334155;' }).text('Layer').appendTo(layerLabel);
+
+        const cooldownLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;white-space:nowrap;margin:0;cursor:help;', title: 'Define a cooldown to re-add the action after the timer expires. Variable From/To in seconds, or a fixed cooldown after X seconds.' }).appendTo(settingsRow);
+        $('<input/>', { class: 'node-input-action-cooldown-enabled', type: 'checkbox' }).prop('checked', !!action?.cooldownEnabled).appendTo(cooldownLabel);
+        $('<span/>', { style: 'color:#334155;' }).text('Cooldown').appendTo(cooldownLabel);
+        $('<input/>', { class: 'node-input-action-cooldown-from', type: 'text', inputmode: 'numeric', placeholder: 'from', style: 'width:60px;min-width:60px;font-size:12px;text-align:right;' }).val(action?.cooldownFrom ?? '').appendTo(settingsRow);
+        $('<span/>', { style: 'color:#94a3b8;white-space:nowrap;font-size:12px;' }).text('to').appendTo(settingsRow);
+        $('<input/>', { class: 'node-input-action-cooldown-to', type: 'text', inputmode: 'numeric', placeholder: 'to', style: 'width:60px;min-width:60px;font-size:12px;text-align:right;' }).val(action?.cooldownTo ?? '').appendTo(settingsRow);
+        $('<span/>', { style: 'color:#94a3b8;white-space:nowrap;font-size:12px;' }).text('sec').appendTo(settingsRow);
+
+        // Auto-Call section
+        const autoCallRow = $('<div/>', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border:1px solid #dde3f0;border-radius:8px;background:#fff;font-size:12px;margin-top:6px;' }).appendTo(settingsBody);
+        const autoCallLabel = $('<label/>', { style: 'display:flex;align-items:center;gap:4px;white-space:nowrap;margin:0;cursor:help;', title: 'When this action is triggered, automatically inject a secondary action, group, or layer into the chat. Allows building action trees and consequence chains.' }).appendTo(autoCallRow);
+        $('<input/>', { class: 'node-input-action-autocall-enabled', type: 'checkbox' }).prop('checked', !!action?.autoCallEnabled).appendTo(autoCallLabel);
+        $('<span/>', { style: 'color:#334155;font-weight:600;' }).text('Auto Call').appendTo(autoCallLabel);
+        const autoCallTypeSelect = $('<select/>', { class: 'node-input-action-autocall-type', style: 'width:80px;font-size:12px;' }).appendTo(autoCallRow);
+        $('<option/>', { value: 'action' }).text('Action').appendTo(autoCallTypeSelect);
+        $('<option/>', { value: 'group' }).text('Group').appendTo(autoCallTypeSelect);
+        $('<option/>', { value: 'layer' }).text('Layer').appendTo(autoCallTypeSelect);
+        autoCallTypeSelect.val(action?.autoCallType || 'action');
+
+        // Breadcrumb chips container
+        const chipsContainer = $('<div/>', { class: 'autocall-chips-container', style: 'flex:1;min-width:200px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:4px;border:1px solid #dde3f0;border-radius:6px;background:#fff;min-height:30px;' }).appendTo(autoCallRow);
+
+        // Hidden input to store raw value (comma-separated)
+        const hiddenTarget = $('<input/>', { class: 'node-input-action-autocall-target', type: 'hidden' }).val(action?.autoCallTarget || '').appendTo(autoCallRow);
+
+        // + button to open overlay
+        const addBtn = $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small', style: 'padding:2px 8px;font-size:12px;width:32px;height:28px;display:flex;align-items:center;justify-content:center;', title: 'Search and add targets' }).html('<i class="fa fa-plus"></i>').appendTo(autoCallRow);
+
+        // Timer button for auto-call delay
+        const hasDelay = (action?.autoCallDelayFrom || action?.autoCallDelayTo);
+        const timerBtn = $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small', style: 'padding:2px 8px;font-size:12px;width:32px;height:28px;display:flex;align-items:center;justify-content:center;' + (hasDelay ? 'color:#f87171;' : 'color:#94a3b8;'), title: 'Set a delay before the auto-call fires. One number = fixed delay in seconds. Two numbers = random range. Set to 0 or empty to disable the delay.' }).html('<i class="fa fa-clock-o"></i>').appendTo(autoCallRow);
+
+        // Hidden inputs for delay values
+        const hiddenDelayFrom = $('<input/>', { class: 'node-input-action-autocall-delay-from', type: 'hidden' }).val(action?.autoCallDelayFrom ?? '').appendTo(autoCallRow);
+        const hiddenDelayTo = $('<input/>', { class: 'node-input-action-autocall-delay-to', type: 'hidden' }).val(action?.autoCallDelayTo ?? '').appendTo(autoCallRow);
+
+        // Delay row (toggled by timer button)
+        const delayRow = $('<div/>', { style: 'display:none;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 8px;border:1px solid #dde3f0;border-radius:8px;background:#fff;font-size:12px;margin-top:4px;' }).insertAfter(autoCallRow);
+        $('<span/>', { style: 'color:#64748b;font-size:11px;' }).text('Delay (sec):').appendTo(delayRow);
+        $('<input/>', { class: 'node-input-action-autocall-delay-from-visible', type: 'text', inputmode: 'numeric', placeholder: 'from', style: 'width:60px;min-width:60px;font-size:12px;text-align:right;border:1px solid #cbd5e1;border-radius:4px;padding:2px 6px;' }).val(action?.autoCallDelayFrom ?? '').appendTo(delayRow);
+        $('<span/>', { style: 'color:#94a3b8;font-size:12px;' }).text('to').appendTo(delayRow);
+        $('<input/>', { class: 'node-input-action-autocall-delay-to-visible', type: 'text', inputmode: 'numeric', placeholder: 'to', style: 'width:60px;min-width:60px;font-size:12px;text-align:right;border:1px solid #cbd5e1;border-radius:4px;padding:2px 6px;' }).val(action?.autoCallDelayTo ?? '').appendTo(delayRow);
+        $('<span/>', { style: 'color:#94a3b8;font-size:11px;' }).text('sec').appendTo(delayRow);
+        $('<span/>', { style: 'color:#94a3b8;font-size:11px;font-style:italic;flex:1;' }).text('One value = fixed delay. Two values = random range. 0 or empty = no delay.').appendTo(delayRow);
+
+        function updateTimerColor() {
+            const from = hiddenDelayFrom.val().trim();
+            const to = hiddenDelayTo.val().trim();
+            const hasVal = (from && from !== '0') || (to && to !== '0');
+            timerBtn.css('color', hasVal ? '#f87171' : '#94a3b8');
         }
 
-        function collectArguments() {
-            const args = [];
-            $argsContainer.find('.argument-row').each(function () {
-                const name = $(this).find('.arg-name').val().trim();
-                const desc = $(this).find('.arg-desc').val().trim();
-                if (name) {
-                    args.push({
-                        name,
-                        type: 'String',
-                        required: true,
-                        description: desc
+        // Sync visible inputs to hidden
+        delayRow.find('.node-input-action-autocall-delay-from-visible').on('input', function () {
+            hiddenDelayFrom.val($(this).val().trim());
+            updateTimerColor();
+        });
+        delayRow.find('.node-input-action-autocall-delay-to-visible').on('input', function () {
+            hiddenDelayTo.val($(this).val().trim());
+            updateTimerColor();
+        });
+
+        timerBtn.off('click').on('click', function () {
+            delayRow.toggle();
+        });
+
+        // Parse existing targets into chips
+        const existingTargets = (action?.autoCallTarget || '').split(',').map((t) => t.trim()).filter(Boolean);
+        function renderChips() {
+            const current = hiddenTarget.val().split(',').map((t) => t.trim()).filter(Boolean);
+            chipsContainer.find('.autocall-chip').remove();
+            current.forEach(function (target) {
+                const chip = $('<span/>', { class: 'autocall-chip', style: 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;background:#e0e7ff;border-radius:12px;font-size:11px;color:#3730a3;white-space:nowrap;' }).text(target).appendTo(chipsContainer);
+                $('<i/>', { class: 'fa fa-times', style: 'cursor:pointer;opacity:0.6;', title: 'Remove' }).on('click', function () {
+                    const vals = hiddenTarget.val().split(',').map((t) => t.trim()).filter(Boolean);
+                    const idx = vals.indexOf(target);
+                    if (idx >= 0) { vals.splice(idx, 1); }
+                    hiddenTarget.val(vals.join(', '));
+                    renderChips();
+                }).appendTo(chip);
+            });
+        }
+        renderChips();
+
+        // Overlay picker
+        addBtn.off('click').on('click', function () {
+            const selectedType = autoCallTypeSelect.val();
+            const currentTargets = hiddenTarget.val().split(',').map((t) => t.trim()).filter(Boolean);
+
+            // Collect all actions, groups, and layers from all enabled action nodes
+            const allActions = [];
+            const allGroups = [];
+            const allLayers = [];
+
+            RED.nodes.eachNode(function (n) {
+                if (n.type !== 'actions') { return; }
+                if (n.d === true) { return; }
+                // Check disabled flow
+                const flow = RED.nodes.workspace(n.z) || RED.nodes.node(n.z);
+                if (flow && flow.disabled === true) { return; }
+
+                const nodeObj = RED.nodes.node(n.id);
+                if (!nodeObj || !nodeObj.actions) { return; }
+
+                // Flatten actions from raw entries (skip groups, dive into items)
+                function collectActions(entries) {
+                    if (!Array.isArray(entries)) { return; }
+                    entries.forEach(function (e) {
+                        if (!e) { return; }
+                        if (e.type === 'group') {
+                            collectActions(e.items);
+                            return;
+                        }
+                        if (e.name) {
+                            allActions.push({ name: e.name, nodeName: n.name || n.id, layer: e.layer || 'default' });
+                            if (e.layer && allLayers.indexOf(e.layer) === -1) { allLayers.push(e.layer); }
+                        }
                     });
                 }
-            });
-            return args;
-        }
+                collectActions(nodeObj.actions || n.actions || []);
 
-        function loadSelectedAction() {
-            const selectedIndex = $actionDropdown.val();
-            if (node.actions && node.actions[selectedIndex]) {
-                const action = node.actions[selectedIndex];
-                $typeDropdown?.val(action.flag || '');
-                $actionName.val(action.name || '');
-                $description.val(action.description || '');
-                $layerDropdown.val(action.layer || 'default');
-                $timingDropdown.val(action.timing || 'AfterAssistantMessage');
-                $setFlags.val((action.setFlags || []).join(', '));
-                $secret.val(action.secret || '');
-                $note.val(action.note || '');
-                $cancelReply.prop('checked', !!action.cancelReply);
-                renderArguments(action.arguments || []);
+                // Build group index from raw entries (editor doesn't have runtime groupIndex)
+                const rawEntries = nodeObj.actions || n.actions || [];
+                function collectGroups(entries) {
+                    if (!Array.isArray(entries)) { return; }
+                    entries.forEach(function (e) {
+                        if (e && e.type === 'group' && e.name) {
+                            const count = (e.items || []).filter(function (i) { return i && i.type !== 'group'; }).length;
+                            allGroups.push({ name: e.name, count: count, nodeName: n.name || n.id });
+                            // Recurse into nested groups
+                            collectGroups(e.items);
+                        }
+                    });
+                }
+                collectGroups(rawEntries);
+            });
+
+            // Build overlay
+            const overlay = $('<div/>', { style: 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.3);z-index:10000;display:flex;align-items:center;justify-content:center;' }).appendTo('body');
+
+            const panel = $('<div/>', { style: 'background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.2);width:520px;max-width:90vw;max-height:70vh;display:flex;flex-direction:column;font-family:Helvetica,Arial,sans-serif;' }).appendTo(overlay);
+
+            // Header
+            const panelHeader = $('<div/>', { style: 'padding:12px 16px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;' }).appendTo(panel);
+            $('<div/>', { style: 'font-weight:600;font-size:14px;' }).text('Select Auto-Call Targets (' + selectedType + ')').appendTo(panelHeader);
+            $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small', title: 'Close' }).html('<i class="fa fa-times"></i>').on('click', function () { overlay.remove(); }).appendTo(panelHeader);
+
+            // Filter tabs
+            const tabRow = $('<div/>', { style: 'padding:8px 16px;border-bottom:1px solid #f1f5f9;display:flex;gap:4px;' }).appendTo(panel);
+            const tabs = ['action', 'group', 'layer'];
+            const tabButtons = {};
+            tabs.forEach(function (t) {
+                const btn = $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small', style: selectedType === t ? 'font-weight:600;background:#e0e7ff;' : '' }).text(t.charAt(0).toUpperCase() + t.slice(1) + 's').appendTo(tabRow);
+                tabButtons[t] = btn;
+                btn.on('click', function () {
+                    activeTab = t;
+                    tabRow.find('button').css({ fontWeight: '', background: '' });
+                    btn.css({ fontWeight: '600', background: '#e0e7ff' });
+                    renderList();
+                });
+            });
+
+            // Search filter
+            const searchRow = $('<div/>', { style: 'padding:8px 16px;border-bottom:1px solid #f1f5f9;' }).appendTo(panel);
+            const searchInput = $('<input/>', { type: 'text', placeholder: 'Filter...', style: 'width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;' }).appendTo(searchRow);
+
+            // List container
+            const listContainer = $('<div/>', { style: 'flex:1;overflow-y:auto;padding:8px 16px;' }).appendTo(panel);
+
+            // Footer
+            const footer = $('<div/>', { style: 'padding:10px 16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;' }).appendTo(panel);
+            const selectedCount = $('<span/>', { style: 'font-size:12px;color:#64748b;' }).text('0 selected').appendTo(footer);
+            const doneBtn = $('<button/>', { type: 'button', class: 'red-ui-button', style: 'background:#e0e7ff;color:#1e1b4b;font-weight:600;border:1px solid #c7d2fe;' }).text('Done').appendTo(footer);
+
+            let activeTab = selectedType;
+            let tempSelected = [...currentTargets];
+
+            function renderList() {
+                listContainer.empty();
+                let items = [];
+                if (activeTab === 'action') {
+                    allActions.forEach(function (a) { items.push({ label: a.name, sub: a.nodeName + (a.layer ? ' / ' + a.layer : '') }); });
+                } else if (activeTab === 'group') {
+                    allGroups.forEach(function (g) { items.push({ label: g.name, sub: g.nodeName + ' (' + g.count + ' actions)' }); });
+                } else if (activeTab === 'layer') {
+                    allLayers.forEach(function (l) { items.push({ label: l, sub: '' }); });
+                }
+
+                const filter = searchInput.val().toLowerCase().trim();
+                if (filter) {
+                    items = items.filter(function (i) { return i.label.toLowerCase().indexOf(filter) >= 0 || i.sub.toLowerCase().indexOf(filter) >= 0; });
+                }
+
+                if (items.length === 0) {
+                    $('<div/>', { style: 'color:#94a3b8;text-align:center;padding:20px;font-size:12px;' }).text('No items found.').appendTo(listContainer);
+                    return;
+                }
+
+                items.forEach(function (item) {
+                    const isSelected = tempSelected.indexOf(item.label) >= 0;
+                    const row = $('<div/>', { style: 'display:flex;gap:8px;align-items:center;padding:6px 8px;border-bottom:1px solid #f1f5f9;cursor:pointer;' }).appendTo(listContainer);
+                    $('<input/>', { type: 'checkbox', checked: isSelected }).appendTo(row);
+                    $('<span/>', { style: 'font-weight:500;font-size:12px;min-width:120px;' }).text(item.label).appendTo(row);
+                    if (item.sub) {
+                        $('<span/>', { style: 'color:#94a3b8;font-size:11px;flex:1;' }).text(item.sub).appendTo(row);
+                    }
+                    row.on('click', function (e) {
+                        if (e.target.tagName === 'INPUT') { return; }
+                        const cb = row.find('input');
+                        cb.prop('checked', !cb.prop('checked'));
+                    });
+                    row.find('input').on('change', function () {
+                        if ($(this).prop('checked')) {
+                            if (tempSelected.indexOf(item.label) === -1) { tempSelected.push(item.label); }
+                        } else {
+                            const idx = tempSelected.indexOf(item.label);
+                            if (idx >= 0) { tempSelected.splice(idx, 1); }
+                        }
+                        selectedCount.text(tempSelected.length + ' selected');
+                    });
+                });
+                selectedCount.text(tempSelected.length + ' selected');
             }
-        }
 
-        function populateDropdowns() {
-            $actionDropdown.empty();
-            (node.actions || []).forEach((action, index) => {
-                $actionDropdown.append(`<option value="${index}">${action.name || `Action ${index + 1}`}</option>`);
+            searchInput.on('input', renderList);
+            renderList();
+
+            doneBtn.on('click', function () {
+                hiddenTarget.val(tempSelected.join(', '));
+                renderChips();
+                overlay.remove();
             });
-
-            const layers = [...new Set((node.actions || []).map(a => a.layer || 'default'))];
-            if (!layers.includes('default')) layers.unshift('default');
-            $layerDropdown.empty();
-            layers.forEach(layer => {
-                $layerDropdown.append(`<option value="${layer}">${layer}</option>`);
+            overlay.on('click', function (e) {
+                if (e.target === overlay[0]) { overlay.remove(); }
             });
-        }
-
-        $actionDropdown.on('change', function () {
-            loadSelectedAction();
         });
 
-        $('#save-button').on('click', function () {
-            const selectedIndex = $actionDropdown.val();
-            const setFlagsArray = $setFlags.val().split(/[;,]/).map(item => item.trim()).filter(Boolean);
-            const args = collectArguments();
-            const newAction = {
-                name: $actionName.val(),
-                description: $description.val(),
-                layer: $layerDropdown.val() || 'default',
-                timing: $timingDropdown.val() || 'AfterAssistantMessage',
-                setFlags: setFlagsArray,
-                secret: $secret.val(),
-                note: $note.val(),
-                cancelReply: $cancelReply.prop('checked'),
-                arguments: args
-            };
+        row.on('click', '.node-input-action-remove', function () { row.remove(); });
+        row.on('click', '.node-input-add-argument', function () { argsList.append(createArgumentEditor()); });
+        row.on('click', '.node-input-action-toggle', function () {
+            updateActionEditorState(row, row.attr('data-collapsed') !== 'true');
+        });
+        row.on('click', '.node-input-action-settings-toggle', function () {
+            updateSettingsPanelState(row, row.attr('data-settings-collapsed') !== 'true');
+        });
+        updateActionEditorState(row, !!action?.uiCollapsed);
+        updateSettingsPanelState(row, !!action?.uiSettingsCollapsed);
+        return row;
+    }
 
-            if (node.actions[selectedIndex]) {
-                node.actions[selectedIndex] = newAction;
-            } else {
-                node.actions.push(newAction);
+    function createGroupEditor(group) {
+        const row = $('<div/>', { class: 'voxta-action-group', 'data-entry-type': 'group', 'data-group-id': group?.id || uniqueGroupId(), style: 'border:1px solid #cfd8ea;border-radius:12px;padding:12px;margin-bottom:10px;background:linear-gradient(180deg,#fdfefe 0%,#f5f8ff 100%);box-shadow:0 1px 3px rgba(15,23,42,0.05);' });
+        const header = $('<div/>', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }).appendTo(row);
+        $('<div/>', { class: 'voxta-action-drag', text: '☰', style: 'cursor:move;color:#64748b;font-size:16px;line-height:30px;padding:0 4px;' }).appendTo(header);
+        $('<input/>', { class: 'node-input-group-name', type: 'text', placeholder: 'Group name', style: 'flex:1;min-width:180px;' }).val(group?.name || '').appendTo(header);
+        $('<span/>', { style: 'color:#64748b;font-size:12px;padding:0 4px;' }).text('Group').appendTo(header);
+        $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-group-toggle' }).text('Retract').appendTo(header);
+        $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-group-remove' }).text('Remove').appendTo(header);
+
+        const body = $('<div/>', { class: 'node-input-group-body', style: 'margin-top:10px;' }).appendTo(row);
+        const meta = $('<div/>', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;' }).appendTo(body);
+        $('<div/>', { style: 'display:flex;align-items:center;gap:6px;font-weight:600;' })
+            .append($('<span/>').text('Grouped actions'))
+            .append(createHint('Drag actions in or out of this group. Groups are only local organization inside this node.'))
+            .appendTo(meta);
+        $('<button/>', { type: 'button', class: 'red-ui-button red-ui-button-small node-input-group-add-action' }).text('Add action').appendTo(meta);
+
+        $('<div/>', { class: 'voxta-action-dropzone node-input-group-items', style: 'min-height:22px;padding:6px;border:1px dashed #cbd5e1;border-radius:8px;background:#ffffff;' }).appendTo(body);
+
+        row.on('click', '.node-input-group-remove', function () { row.remove(); });
+        row.on('click', '.node-input-group-toggle', function () {
+            updateGroupState(row, row.attr('data-group-collapsed') !== 'true');
+        });
+        row.on('click', '.node-input-group-add-action', function () {
+            row.find('.node-input-group-items').append(createActionEditor({}));
+            initializeSortables($('#node-input-actions-container'));
+        });
+
+        (group?.items || []).forEach((entry) => row.find('.node-input-group-items').append(createEntryEditor(entry)));
+        updateGroupState(row, !!group?.uiCollapsed);
+        return row;
+    }
+
+    function createEntryEditor(entry) {
+        return isGroupEntry(entry) ? createGroupEditor(entry) : createActionEditor(entry || {});
+    }
+
+    function updateActionContainer(container, entries) {
+        container.empty();
+        entries.forEach((entry) => container.append(createEntryEditor(entry)));
+        initializeSortables(container);
+    }
+
+    function initializeSortables(container) {
+        if (!$.fn.sortable) {
+            return;
+        }
+
+        const topLevel = container;
+        const groupLists = container.find('.node-input-group-items');
+        const allLists = topLevel.add(groupLists);
+
+        allLists.each(function () {
+            const list = $(this);
+            if (list.hasClass('ui-sortable')) {
+                list.sortable('destroy');
             }
-
-            RED.nodes.dirty(true);
-            RED.nodes.sendUpdate(node, { actions: node.actions });
-            populateDropdowns();
         });
-
-        $('#add-new-action').on('click', function () {
-            node.actions.push({});
-            populateDropdowns();
-            $actionDropdown.val(node.actions.length - 1);
-            loadSelectedAction();
+        topLevel.sortable({
+            handle: '.voxta-action-drag',
+            items: '> .voxta-action-item, > .voxta-action-group',
+            connectWith: '.voxta-action-dropzone, #node-input-actions-container',
+            placeholder: 'voxta-sort-placeholder',
+            start: function (_event, ui) {
+                ui.item.data('liveValues', captureFormValues(ui.item));
+            },
+            stop: function (_event, ui) {
+                restoreFormValues(ui.item, ui.item.data('liveValues') || []);
+            }
         });
+        groupLists.sortable({
+            handle: '.voxta-action-drag',
+            items: '> .voxta-action-item',
+            connectWith: '.node-input-group-items, #node-input-actions-container',
+            placeholder: 'voxta-sort-placeholder',
+            start: function (_event, ui) {
+                ui.item.data('liveValues', captureFormValues(ui.item));
+            },
+            stop: function (_event, ui) {
+                restoreFormValues(ui.item, ui.item.data('liveValues') || []);
+            },
+            receive: function (_event, ui) {
+                if (ui.item.attr('data-entry-type') === 'group') {
+                    $(this).sortable('cancel');
+                    return;
+                }
+                restoreFormValues(ui.item, ui.item.data('liveValues') || []);
+            }
+        });
+    }
 
-        $('#remove-action').on('click', function () {
-            const selectedIndex = $actionDropdown.val();
-            if (selectedIndex == 0) {
-                RED.notify("Cannot delete the first action. You can only modify it.", "error");
+    function readActionRow(row) {
+        const cooldownFrom = row.find('.node-input-action-cooldown-from').val().trim();
+        const cooldownTo = row.find('.node-input-action-cooldown-to').val().trim();
+        const action = {
+            type: 'action',
+            name: row.find('.node-input-action-name').val().trim(),
+            description: row.find('.node-input-action-description').val().trim(),
+            layer: row.find('.node-input-action-layer').val().trim() || 'default',
+            timing: row.find('.node-input-action-timing').val() || 'AfterAssistantMessage',
+            setFlags: row.find('.node-input-action-flags').val().split(',').map((value) => value.trim()).filter(Boolean),
+            secret: row.find('.node-input-action-secret').val().trim(),
+            note: row.find('.node-input-action-note').val().trim(),
+            cancelReply: row.find('.node-input-action-cancel').is(':checked'),
+            characters: row.find('.node-input-action-characters').val().trim(),
+            onceOnly: row.find('.node-input-action-once-only').is(':checked'),
+            groupOnce: row.find('.node-input-action-group-once').is(':checked'),
+            layerOnce: row.find('.node-input-action-layer-once').is(':checked'),
+            cooldownEnabled: row.find('.node-input-action-cooldown-enabled').is(':checked'),
+            cooldownFrom,
+            cooldownTo,
+            autoCallEnabled: row.find('.node-input-action-autocall-enabled').is(':checked'),
+            autoCallType: row.find('.node-input-action-autocall-type').val() || 'action',
+            autoCallTarget: row.find('.node-input-action-autocall-target').val().trim(),
+            autoCallDelayFrom: row.find('.node-input-action-autocall-delay-from').val().trim(),
+            autoCallDelayTo: row.find('.node-input-action-autocall-delay-to').val().trim(),
+            uiCollapsed: row.attr('data-collapsed') === 'true',
+            uiSettingsCollapsed: row.attr('data-settings-collapsed') === 'true',
+            arguments: [],
+            executionMode: row.find('.node-input-action-execution-mode').val() || 'internal',
+            autoInject: row.find('.node-input-action-auto-inject').is(':checked'),
+            dashboardWidget: (function () {
+                const id = row.find('.node-input-action-widget-id').val().trim();
+                if (!id) return null;
+                return {
+                    id: id,
+                    type: row.find('.node-input-action-widget-type').val().trim(),
+                    label: row.find('.node-input-action-widget-label').val().trim(),
+                    tabName: row.find('.node-input-action-widget-tab').val().trim(),
+                    groupName: row.find('.node-input-action-widget-group').val().trim(),
+                    onValue: row.find('.node-input-action-widget-onvalue').val().trim() || undefined,
+                    offValue: row.find('.node-input-action-widget-offvalue').val().trim() || undefined
+                };
+            })()
+        };
+
+        row.find('.noxy-arg-row').each(function () {
+            const argRow = $(this);
+            const name = argRow.find('.node-input-arg-name').val().trim();
+            if (!name) {
                 return;
             }
-            if (selectedIndex !== null && node.actions[selectedIndex]) {
-                node.actions.splice(selectedIndex, 1);
-                populateDropdowns();
-                $actionDropdown.val(Math.max(0, selectedIndex - 1));
-                loadSelectedAction();
-            }
-        });
-
-        $addArg.on('click', function () {
-            const row = $(`
-                <div class="argument-row" style="margin-bottom: 6px;">
-                    <div style="display: flex; align-items: center;">
-                        <input type="text" class="arg-name" placeholder="Arg name" style="flex: 1; margin-right: 6px;">
-                        <button type="button" class="remove-arg">–</button>
-                    </div>
-                    <textarea class="arg-desc" placeholder="Description"></textarea>
-                </div>
-            `);
-            row.find('.remove-arg').on('click', function () {
-                row.remove();
+            action.arguments.push({
+                name,
+                type: argRow.find('.node-input-arg-type').val() || 'String',
+                description: argRow.find('.node-input-arg-description').val().trim(),
+                required: argRow.find('.node-input-arg-required').is(':checked')
             });
-            $argsContainer.append(row);
         });
 
-        $addLayer.on('click', function () {
-            const newLayer = prompt("Enter a new layer name:");
-            if (newLayer && !$layerDropdown.find(`option[value="${newLayer}"]`).length) {
-                $layerDropdown.append(`<option value="${newLayer}">${newLayer}</option>`);
-                $layerDropdown.val(newLayer);
-            }
-        });
+        return action.name ? action : null;
+    }
 
-        $removeLayer.on('click', function () {
-            const selectedLayer = $layerDropdown.val();
-            if (selectedLayer === 'default') {
-                RED.notify("Cannot remove the default layer.", "error");
+    function readEntries(container) {
+        const entries = [];
+        container.children('[data-entry-type]').each(function () {
+            const row = $(this);
+            const entryType = row.attr('data-entry-type');
+            if (entryType === 'group') {
+                const name = row.find('.node-input-group-name').val().trim();
+                const childEntries = readEntries(row.find('.node-input-group-items'));
+                if (!name) {
+                    entries.push(...childEntries);
+                    return;
+                }
+                entries.push({
+                    type: 'group',
+                    id: row.attr('data-group-id') || uniqueGroupId(),
+                    name,
+                    uiCollapsed: row.attr('data-group-collapsed') === 'true',
+                    items: childEntries
+                });
                 return;
             }
-            $layerDropdown.find(`option[value="${selectedLayer}"]`).remove();
-            $layerDropdown.val('default');
-        });
 
-        populateDropdowns();
-        loadSelectedAction();
-    },
-});
+            const action = readActionRow(row);
+            if (action) {
+                entries.push(action);
+            }
+        });
+        return entries;
+    }
+
+    const voxtaActionsDefinition = {
+        category: 'Voxta',
+        color: '#f6f7fb',
+        defaults: {
+            name: { value: '' },
+        linkTarget: { value: false },
+            client: {
+                value: '',
+                type: 'signalr-client',
+                required: true,
+                validate: function (value) { return RED.nodes.node(value) != null; }
+            },
+            sessionId: { value: '' },
+            charId: { value: '' },
+            defaultMode: { value: 'add' },
+            actions: { value: [] }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: 'voxta.png',
+        label: function () {
+            return this.name || 'Actions';
+        },
+        oneditprepare: function () {
+            // === Character chip UI ===
+            (function setupCharChips() {
+                const chipContainer = $('#voxta-char-chips');
+                const charInput = $('#voxta-char-input');
+                const hiddenInput = $('#node-input-charId');
+                let characterList = [];
+                let selectedChars = [];
+
+                // Load existing value
+                const existing = hiddenInput.val().trim();
+                if (existing) {
+                    selectedChars = existing.split(/[,;]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+                }
+
+                function renderChips() {
+                    chipContainer.find('.voxta-char-chip').remove();
+                    selectedChars.forEach(function (name) {
+                        const chip = $('<div/>', {
+                            class: 'voxta-char-chip',
+                            style: 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;background:#eef2ff;color:#3b5bdb;font-size:12px;font-weight:600;'
+                        }).insertBefore(charInput);
+                        $('<span/>').text(name).attr('title', (characterList.find(function(c){return c.name===name;})||{}).notes||'').appendTo(chip);
+                        $('<button/>', {
+                            type: 'button',
+                            style: 'border:none;background:none;color:#3b5bdb;cursor:pointer;font-weight:700;padding:0 0 0 2px;font-size:14px;line-height:1;',
+                            text: '\u2715'
+                        }).on('click', function () {
+                            selectedChars = selectedChars.filter(function (n) { return n !== name; });
+                            updateHidden();
+                            renderChips();
+                        }).appendTo(chip);
+                    });
+                }
+
+                function updateHidden() {
+                    hiddenInput.val(selectedChars.join(', '));
+                }
+
+                function addChar(name) {
+                    name = name.trim();
+                    if (!name) return;
+                    if (selectedChars.some(function (n) { return n.toLowerCase() === name.toLowerCase(); })) return;
+                    const match = characterList.find(function (c) { return c.name.toLowerCase() === name.toLowerCase(); });
+                    if (match) {
+                        selectedChars.push(match.name);
+                    } else {
+                        selectedChars.push(name);
+                    }
+                    updateHidden();
+                    renderChips();
+                    charInput.val('');
+                }
+
+                function fetchCharacters() {
+                    const clientId = $('#node-input-client').val();
+                    if (!clientId) return;
+                    $.getJSON('voxta-config/characters?clientId=' + encodeURIComponent(clientId), function (data) {
+                        characterList = data || [];
+                    }).fail(function () {});
+                }
+
+                charInput.on('keydown', function (e) {
+                    if (e.which === 13 || e.keyCode === 13) {
+                        e.preventDefault();
+                        addChar($(this).val());
+                    }
+                });
+
+                charInput.on('input', function () {
+                    const val = $(this).val().toLowerCase().trim();
+                    $('#voxta-char-dropdown').remove();
+                    if (!val || characterList.length === 0) return;
+                    const matches = characterList.filter(function (c) {
+                        return c.name.toLowerCase().indexOf(val) >= 0;
+                    }).slice(0, 10);
+                    if (matches.length === 0) return;
+                    const dropdown = $('<div/>', {
+                        id: 'voxta-char-dropdown',
+                        style: 'position:absolute;z-index:1000;background:#fff;border:1px solid #dde3f0;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.1);max-height:200px;overflow-y:auto;min-width:200px;'
+                    }).appendTo($('body'));
+                    const offset = charInput.offset();
+                    dropdown.css({ top: offset.top + charInput.outerHeight(), left: offset.left });
+                    matches.forEach(function (c) {
+                        $('<div/>', {
+                            style: 'padding:4px 12px;cursor:pointer;font-size:13px;'
+                        }).text(c.name).attr('title', c.notes || '').on('mouseenter', function () { $(this).css('background', '#eef2ff'); })
+                          .on('mouseleave', function () { $(this).css('background', '#fff'); })
+                          .on('click', function () { addChar(c.name); dropdown.remove(); })
+                          .appendTo(dropdown);
+                    });
+                    setTimeout(function () {
+                        $(document).one('click', function () { dropdown.remove(); });
+                    }, 100);
+                });
+
+                // Discover button — fetch characters from Voxta on demand
+                $('#voxta-char-discover').off('click').on('click', function () {
+                    const clientId = $('#node-input-client').val();
+                    if (!clientId) {
+                        $('#voxta-char-status').text('Select a Voxta client first').css('color', '#d9534f');
+                        return;
+                    }
+                    $('#voxta-char-status').text('Discovering...').css('color', '#64748b');
+                    $.getJSON('voxta-config/characters?clientId=' + encodeURIComponent(clientId), function (data) {
+                        characterList = data || [];
+                        $('#voxta-char-status').text(characterList.length + ' characters found').css('color', '#3b5bdb');
+                    }).fail(function (jqXHR) {
+                        let msg = 'Discover failed';
+                        if (jqXHR.responseJSON && jqXHR.responseJSON.error) msg = jqXHR.responseJSON.error;
+                        $('#voxta-char-status').text(msg).css('color', '#d9534f');
+                    });
+                });
+                fetchCharacters();
+                renderChips();
+            })();
+
+            const container = $('#node-input-actions-container');
+            const entries = Array.isArray(this.actions) ? this.actions : [];
+            updateActionContainer(container, entries);
+
+            $('#node-input-add-action').off('click').on('click', function () {
+                container.append(createActionEditor({}));
+                initializeSortables(container);
+            });
+
+            // Dashboard scanner
+            (function setupDashboardScanner() {
+                const tabSelect = $('#node-input-dashboard-tab');
+                const resultsDiv = $('#node-input-scan-results');
+                const importBtn = $('#node-input-import-selected');
+                let discoveredWidgets = [];
+
+                // Populate tabs from Node-RED runtime (config nodes, not flow nodes)
+                const tabs = [];
+                RED.nodes.eachConfig(function (n) {
+                    if (n.type === 'ui_tab') { tabs.push(n); }
+                });
+                tabs.sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+                tabs.forEach(function (tab) {
+                    tabSelect.append($('<option/>', { value: tab.id }).text(tab.name || tab.id));
+                });
+
+                function discoverWidgets() {
+                    const widgets = [];
+                    const selectedTab = tabSelect.val();
+                    const groups = {};
+                    RED.nodes.eachConfig(function (n) {
+                        if (n.type === 'ui_group' && n.tab) { groups[n.id] = n; }
+                    });
+                    RED.nodes.eachNode(function (n) {
+                        if (['ui_button', 'ui_switch', 'ui_slider'].indexOf(n.type) === -1) { return; }
+                        const group = groups[n.group];
+                        if (!group) { return; }
+                        const tab = RED.nodes.node(group.tab);
+                        if (selectedTab && tab && tab.id !== selectedTab) { return; }
+                        const widgetMeta = { id: n.id, type: n.type, label: n.label || n.name || 'Unnamed', groupName: group.name || group.id, tabName: tab ? (tab.name || tab.id) : '' };
+                        if (n.type === 'ui_slider') {
+                            widgetMeta.min = n.min !== undefined ? n.min : 0;
+                            widgetMeta.max = n.max !== undefined ? n.max : 100;
+                        }
+                        if (n.type === 'ui_switch') {
+                            widgetMeta.onValue = n.onvalue || 'ON';
+                            widgetMeta.offValue = n.offvalue || 'OFF';
+                        }
+                        widgets.push(widgetMeta);
+                    });
+                    widgets.sort(function (a, b) {
+                        return (a.tabName + a.groupName + a.label).localeCompare(b.tabName + b.groupName + b.label);
+                    });
+                    return widgets;
+                }
+
+                function toActionName(label) {
+                    return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').substring(0, 64);
+                }
+
+                function isDuplicate(name) {
+                    const existing = readEntries(container).filter(function (e) { return e.type === 'action'; });
+                    return existing.some(function (a) { return a.name === name; });
+                }
+
+                $('#node-input-scan-dashboard').off('click').on('click', function () {
+                    discoveredWidgets = discoverWidgets();
+                    resultsDiv.empty();
+                    if (discoveredWidgets.length === 0) {
+                        resultsDiv.append($('<div/>').text('No dashboard widgets found.'));
+                        resultsDiv.show();
+                        importBtn.hide();
+                        return;
+                    }
+
+                    const table = $('<div/>').appendTo(resultsDiv);
+                    discoveredWidgets.forEach(function (w, idx) {
+                        const actionName = toActionName(w.label);
+                        const dup = isDuplicate(actionName);
+                        const row = $('<div/>', { style: 'display:flex;gap:8px;align-items:center;padding:4px;border-bottom:1px solid #e2e8f0;' }).appendTo(table);
+                        $('<input/>', { type: 'checkbox', class: 'scan-select', 'data-idx': idx, disabled: dup, checked: !dup }).appendTo(row);
+                        $('<span/>', { style: 'font-weight:600;min-width:140px;' }).text(actionName).appendTo(row);
+                        $('<span/>', { style: 'color:#64748b;font-size:12px;flex:1;' }).text(`${w.tabName} / ${w.groupName} / ${w.label} (${w.type.replace('ui_','')})`).appendTo(row);
+                        if (dup) {
+                            $('<span/>', { style: 'color:#94a3b8;font-size:11px;' }).text('Already exists').appendTo(row);
+                        }
+                    });
+                    resultsDiv.show();
+                    importBtn.show();
+                });
+
+                importBtn.off('click').on('click', function () {
+                    const selected = [];
+                    resultsDiv.find('.scan-select:checked').each(function () {
+                        const idx = parseInt($(this).attr('data-idx'));
+                        selected.push(discoveredWidgets[idx]);
+                    });
+                    let imported = 0;
+                    selected.forEach(function (w) {
+                        const actionName = toActionName(w.label);
+                        if (isDuplicate(actionName)) { return; }
+                        let args = [];
+                        if (w.type === 'ui_slider') {
+                            const min = w.min !== undefined ? w.min : 0;
+                            const max = w.max !== undefined ? w.max : 100;
+                            args.push({
+                                name: 'value',
+                                type: 'Integer',
+                                description: `Set the value for ${w.label}. Provide an integer between ${min} and ${max}. ${min} means minimum/off, ${max} means maximum.`,
+                                required: true
+                            });
+                        } else if (w.type === 'ui_switch') {
+                            args.push({
+                                name: 'state',
+                                type: 'String',
+                                description: `Set the state for ${w.label}. Must be either 'ON' or 'OFF'.`,
+                                required: true
+                            });
+                        }
+                        const editor = createActionEditor({
+                            name: actionName,
+                            description: `Dashboard ${w.type.replace('ui_','')}: ${w.label}`,
+                            layer: 'default',
+                            timing: 'AfterAssistantMessage',
+                            executionMode: 'internal',
+                            arguments: args,
+                            dashboardWidget: {
+                                id: w.id,
+                                type: w.type,
+                                label: w.label,
+                                tabName: w.tabName,
+                                groupName: w.groupName
+                            }
+                        });
+                        container.append(editor);
+                        imported++;
+                    });
+                    initializeSortables(container);
+                    if (imported > 0) {
+                        RED.notify(`Imported ${imported} dashboard widget${imported === 1 ? '' : 's'} as actions`, 'success');
+                    }
+                    resultsDiv.hide();
+                    importBtn.hide();
+                });
+            })();
+
+            $('#node-input-add-group').off('click').on('click', function () {
+                container.append(createGroupEditor({ type: 'group', id: uniqueGroupId(), name: '', items: [] }));
+                initializeSortables(container);
+            });
+            $('#node-input-export-actions').off('click').on('click', () => {
+                downloadJsonFile('voxta-actions.json', readEntries(container));
+            });
+            $('#node-input-import-actions').off('click').on('click', () => {
+                $('#node-input-import-actions-file').trigger('click');
+            });
+            $('#node-input-import-actions-file').off('change').on('change', (event) => {
+                handleImport(event.target, () => readEntries(container), (next, count) => {
+                    this.actions = next;
+                    updateActionContainer(container, next);
+                    RED.notify(`Imported ${count} action/group entr${count === 1 ? 'y' : 'ies'}`, 'success');
+                });
+            });
+            $('#node-input-clear-actions').off('click').on('click', () => {
+                if (!window.confirm('Delete all actions and groups?')) {
+                    return;
+                }
+                this.actions = [];
+                container.empty();
+            });
+        },
+        oneditsave: function () {
+            this.actions = readEntries($('#node-input-actions-container'));
+        }
+    };
+
+    RED.nodes.registerType('actions', voxtaActionsDefinition);
+})();
 </script>
 
-<script type="text/html" data-template-name="voxta-actions">
+<script type="text/html" data-template-name="actions">
     <div class="form-row">
-        <label for="node-input-name" style="width: 120px;"><i class="fa fa-tag"></i> Name</label>
-        <input type="text" id="node-input-name" placeholder="Name">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name">
     </div>
     <div class="form-row">
-        <label for="node-input-actionDropdown" style="width: 120px;"><i class="fa fa-list"></i> Actions</label>
-        <select id="node-input-actionDropdown"></select>
-        <button id="add-new-action">+</button>
-        <button id="remove-action">&ndash;</button>
+        <label for="node-input-linkTarget" style="cursor:help;" title="Enable this node as a link target for the Link relay node."><i class="fa fa-link"></i> Link</label>
+        <input type="checkbox" id="node-input-linkTarget" style="display:inline-block;width:auto;margin-right:4px;">
+        <label for="node-input-linkTarget" style="width:auto;display:inline-block;font-size:12px;color:#64748b;">Enable this node as link target</label>
     </div>
     <div class="form-row">
-        <label for="node-input-actionName" style="width: 120px;"><i class="fa fa-tag"></i> Action Name</label>
-        <input type="text" id="node-input-actionName" placeholder="Action Name">
+        <label for="node-input-client" title="Configure here your SignalR Client connection to your Voxta installation" style="cursor:help;"><i class="fa fa-plug"></i> Voxta</label>
+        <input type="text" id="node-input-client">
     </div>
+    <input type="hidden" id="node-input-sessionId">
     <div class="form-row">
-        <label for="node-input-description" style="width: 120px;"><i class="fa fa-file-text"></i> Description</label>
-        <textarea id="node-input-description" placeholder="Action Description"></textarea>
+        <label for="node-input-charId" title="Assign this node to specific characters. If empty, this node will always be active for all characters." style="cursor:help;"><i class="fa fa-user"></i> Char ID</label>
+        <input type="hidden" id="node-input-charId">
+        <div id="voxta-char-chips" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:28px;padding:2px 6px;border:1px solid #dde3f0;border-radius:6px;background:#f8faff;">
+            <input type="text" id="voxta-char-input" placeholder="Type a character name..." style="border:none;outline:none;flex:1;min-width:180px;background:transparent;font-size:13px;">
+        </div>
+        <button type="button" class="red-ui-button red-ui-button-small" id="voxta-char-discover" style="margin-left:6px;"><i class="fa fa-search"></i> Discover</button>
+        <span id="voxta-char-status" style="margin-left:4px;color:#64748b;font-size:12px;"></span>
     </div>
-    <div class="form-row">
-        <label for="node-input-layer" style="width: 120px;"><i class="fa fa-layer-group"></i> Layer</label>
-        <select id="node-input-layer"></select>
-        <button id="add-layer">+</button>
-        <button id="remove-layer">&ndash;</button>
-    </div>
-    <div class="form-row">
-        <label><i class="fa fa-list-ul"></i> Arguments</label>
-        <div id="arguments-container"></div>
-        <button id="add-argument" type="button">+</button>
-    </div>
-    <div class="form-row">
-        <label for="node-input-timing" style="width: 120px;"><i class="fa fa-clock"></i> Timing</label>
-        <select id="node-input-timing">
-            <option value="AfterUserMessage">AfterUserMessage</option>
-            <option value="BeforeAssistantMessage">BeforeAssistantMessage</option>
-            <option value="AfterAssistantMessage" selected>AfterAssistantMessage</option>
-            <option value="Manual">Manual</option>
-            <option value="Button">Button</option>
-            <option value="AfterAnyMessage">AfterAnyMessage</option>
+    <input type="hidden" id="node-input-defaultMode">
+    <div class="form-row" style="margin-bottom:6px;">
+        <label title="Import existing Dashboard Switches, Buttons and Sliders as Voxta Actions. Either bulk import all or select which actions per node should be imported." style="cursor:help;"><i class="fa fa-dashboard"></i> Dashboard</label>
+        <select id="node-input-dashboard-tab" style="width:200px;">
+            <option value="">All tabs</option>
         </select>
+        <button type="button" class="red-ui-button" id="node-input-scan-dashboard"><i class="fa fa-search"></i> Scan</button>
+        <button type="button" class="red-ui-button" id="node-input-import-selected" style="display:none;"><i class="fa fa-download"></i> Import Selected</button>
+    </div>
+    <div id="node-input-scan-results" style="display:none;max-height:200px;overflow-y:auto;border:1px solid #dde3f0;border-radius:8px;padding:8px;background:#f8faff;margin-bottom:10px;"></div>
+    <div class="form-row" style="margin-bottom:6px;">
+        <label><i class="fa fa-bolt"></i> Actions</label>
+        <button type="button" class="red-ui-button" id="node-input-add-action">Add action</button>
+        <button type="button" class="red-ui-button" id="node-input-add-group">Add group</button>
+        <button type="button" class="red-ui-button" id="node-input-import-actions">Import</button>
+        <button type="button" class="red-ui-button" id="node-input-export-actions">Export</button>
+        <button type="button" class="red-ui-button" id="node-input-clear-actions">Delete all</button>
+        <input type="file" id="node-input-import-actions-file" accept=".json,application/json" style="display:none;">
     </div>
     <div class="form-row">
-        <label for="node-input-setFlags" style="width: 120px;"><i class="fa fa-flag"></i> Set Flags</label>
-        <input type="text" id="node-input-setFlags" placeholder="Flags separated by , or ;">
-    </div>
-    <div class="form-row">
-        <label for="node-input-secret" style="width: 120px;"><i class="fa fa-lock"></i> Secret</label>
-        <textarea id="node-input-secret" placeholder="Secret Message"></textarea>
-    </div>
-    <div class="form-row">
-        <label for="node-input-note" style="width: 120px;"><i class="fa fa-sticky-note"></i> Note</label>
-        <textarea id="node-input-note" placeholder="Optional Note"></textarea>
-    </div>
-    <div class="form-row">
-        <label for="node-input-cancelReply" style="width: 120px;"><i class="fa fa-ban"></i> Cancel Reply</label>
-        <input type="checkbox" id="node-input-cancelReply">
+        <div id="node-input-actions-container" class="voxta-action-dropzone" style="width:100%;min-height:28px;"></div>
     </div>
     <div class="form-tips">
-        <button id="save-button">Save</button>
-        <button id="close-button">Close</button>
+        Trigger with an action name to add it. Use <code>name!</code> or <code>!name</code> to remove it. Group names also work. Use <code>group:MyGroup</code> for an explicit group reference.
     </div>
 </script>
 
-<script type="text/html" data-help-name="voxta-actions">
-    <p>A node for managing and triggering JSON actions dynamically based on input.</p>
+<script type="text/html" data-help-name="actions">
+    <p>Inject and control action inference in Voxta. Register, remove, and manage actions that the AI can trigger during chat.</p>
+    <p>Auto-injects actions on chat start, supports per-action character filtering, cooldowns with auto-restore, and manual inject/remove via input.</p>
+    <p>Dashboard widgets (buttons, switches, sliders) can be imported as actions via the Scan button.</p>
 </script>

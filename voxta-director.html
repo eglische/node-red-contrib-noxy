@@ -1,0 +1,168 @@
+<script type="text/javascript">
+(function () {
+    const DEFAULT_PROMPT = `You are the director of an ongoing Voxta chat. You have access to the complete cached chat snapshot: prompt, transcript, and current situation.
+
+Your job is to provide short-lived steering context for the character — an emotion, thought, intention, mood shift, or direction that enriches the next reply. This is not dialogue. It is inner guidance the character can internalise.
+
+Guidelines:
+- Generate fresh context when the situation changes meaningfully: a new emotion arises, the user's intent shifts, tension escalates or resolves, or the character's focus changes.
+- If the current context is still appropriate and nothing warrants a change, output exactly [KEEP] and nothing else.
+- Do not repeat facts already obvious from the transcript. Do not parrot what the user said. Offer something the character would think or feel that adds depth.
+- Keep it concise: one to three sentences. Plain text only. No JSON, no markdown, no headers, no labels.
+- Write from the character's inner perspective or as a stage direction — whichever feels natural for the moment.`;
+
+    RED.nodes.registerType('director', {
+        category: 'Voxta',
+        color: '#eef2ff',
+        defaults: {
+            name: { value: '' },
+            client: {
+                value: '',
+                type: 'signalr-client',
+                required: true,
+                validate: function (value) { return RED.nodes.node(value) != null; }
+            },
+            enabled: { value: false },
+            prompt: { value: DEFAULT_PROMPT, required: true },
+            inferenceMode: { value: 'voxta' },
+            serviceType: { value: 'TextGen', required: true },
+            directEndpoint: { value: '' },
+            directModel: { value: '' },
+            directApiKey: { value: '' },
+            maxTokens: { value: 300, required: true, validate: RED.validators.number() },
+            timeoutSeconds: { value: 60, required: true, validate: RED.validators.number() },
+            contextKey: { value: 'NoxyDirector', required: true },
+            contextName: { value: 'Director', required: true },
+            inferOnChatStart: { value: true },
+            inferOnReplyEnd: { value: true },
+            triggerDelayMs: { value: 500, validate: RED.validators.number() }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: 'voxta.png',
+        label: function () {
+            return this.name || 'Director';
+        },
+        paletteLabel: 'Director',
+        oneditprepare: function () {
+            const updateEnabledState = function () {
+                const enabled = $('#node-input-enabled').is(':checked');
+                $('#director-disabled-notice').toggle(!enabled);
+                $('#director-settings').css('opacity', enabled ? '1' : '0.62');
+            };
+            const updateInferenceMode = function () {
+                const mode = $('#node-input-inferenceMode').val();
+                $('#director-voxta-service-row').toggle(mode === 'voxta');
+                $('#director-direct-endpoint-row').toggle(mode === 'direct');
+                $('#director-direct-model-row').toggle(mode === 'direct');
+                $('#director-direct-key-row').toggle(mode === 'direct');
+            };
+            $('#node-input-enabled').on('change', updateEnabledState);
+            $('#node-input-inferenceMode').on('change', updateInferenceMode);
+            updateEnabledState();
+            updateInferenceMode();
+        }
+    });
+})();
+</script>
+
+<script type="text/html" data-template-name="director">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Director">
+    </div>
+    <div class="form-row">
+        <label for="node-input-client" title="Use the same saved Voxta connection as the Config, Actions and Context nodes" style="cursor:help;"><i class="fa fa-plug"></i> Voxta</label>
+        <input type="text" id="node-input-client">
+    </div>
+    <div class="form-row">
+        <label for="node-input-enabled"><i class="fa fa-power-off"></i> Enabled</label>
+        <input type="checkbox" id="node-input-enabled" style="display:inline-block;width:auto;margin-right:6px;">
+        <span>Run isolated Director inference</span>
+    </div>
+    <div id="director-disabled-notice" class="form-tips" style="margin-bottom:12px;">
+        Director is disabled. It will neither call TextGen nor inject context.
+    </div>
+
+    <div id="director-settings">
+        <div class="form-row">
+            <label for="node-input-inferenceMode"><i class="fa fa-server"></i> Inference</label>
+            <select id="node-input-inferenceMode" style="width:140px;">
+                <option value="voxta">Voxta TextGen</option>
+                <option value="direct">Direct OpenAI</option>
+            </select>
+        </div>
+        <div class="form-row" id="director-voxta-service-row">
+            <label for="node-input-serviceType"><i class="fa fa-cloud"></i> Service</label>
+            <select id="node-input-serviceType">
+                <option value="TextGen">TextGen</option>
+                <option value="ActionInference">ActionInference</option>
+                <option value="Summarization">Summarization</option>
+            </select>
+        </div>
+        <div class="form-row" id="director-direct-endpoint-row" style="display:none;">
+            <label for="node-input-directEndpoint"><i class="fa fa-link"></i> Endpoint</label>
+            <input type="text" id="node-input-directEndpoint" placeholder="http://192.168.1.18:8080/v1" style="width:60%;">
+        </div>
+        <div class="form-row" id="director-direct-model-row" style="display:none;">
+            <label for="node-input-directModel"><i class="fa fa-cube"></i> Model</label>
+            <input type="text" id="node-input-directModel" placeholder="model-name (leave empty for server default)">
+        </div>
+        <div class="form-row" id="director-direct-key-row" style="display:none;">
+            <label for="node-input-directApiKey"><i class="fa fa-key"></i> API key</label>
+            <input type="password" id="node-input-directApiKey" placeholder="sk-... (leave empty if none)">
+        </div>
+        <div class="form-row">
+            <label for="node-input-maxTokens"><i class="fa fa-sort-numeric-asc"></i> Max tokens</label>
+            <input type="number" id="node-input-maxTokens" min="1" step="1">
+        </div>
+        <div class="form-row">
+            <label for="node-input-timeoutSeconds"><i class="fa fa-clock-o"></i> Timeout</label>
+            <input type="number" id="node-input-timeoutSeconds" min="1" step="1" style="width:100px;">
+            <span style="margin-left:6px;">seconds</span>
+        </div>
+        <div class="form-row">
+            <label for="node-input-prompt"><i class="fa fa-pencil"></i> Prompt</label>
+            <textarea id="node-input-prompt" rows="9" style="width:70%;resize:vertical;" placeholder="Director instruction"></textarea>
+        </div>
+        <div class="form-tips" style="margin-bottom:12px;">
+            The complete cached <code>noxy.chat-snapshot.v1</code> is appended automatically. Put <code>{{snapshot}}</code> in the prompt to insert it at a specific location; <code>{{sessionId}}</code> is also available. The model returns plain text — a thought, emotion, or direction — or <code>[KEEP]</code> to retain the current context.
+        </div>
+
+        <div class="form-row">
+            <label for="node-input-contextKey"><i class="fa fa-key"></i> Context key</label>
+            <input type="text" id="node-input-contextKey" placeholder="NoxyDirector">
+        </div>
+        <div class="form-row">
+            <label for="node-input-contextName"><i class="fa fa-bookmark"></i> Context name</label>
+            <input type="text" id="node-input-contextName" placeholder="Director">
+        </div>
+
+        <div class="form-tips" style="margin-bottom:12px;">
+            Director context persists in the chat until the model decides the situation warrants a replacement. On each inference pass the model outputs fresh text (replace) or <code>[KEEP]</code> (retain current context). Lifecycle is fully handled by the node — the model never deals with JSON, timers, or expiry settings.
+        </div>
+
+        <div class="form-row">
+            <label><i class="fa fa-play-circle"></i> Triggers</label>
+            <label for="node-input-inferOnChatStart" style="width:auto;margin-right:16px;">
+                <input type="checkbox" id="node-input-inferOnChatStart" style="display:inline-block;width:auto;margin-right:4px;"> Chat start
+            </label>
+            <label for="node-input-inferOnReplyEnd" style="width:auto;">
+                <input type="checkbox" id="node-input-inferOnReplyEnd" style="display:inline-block;width:auto;margin-right:4px;"> Reply end
+            </label>
+        </div>
+        <div class="form-row">
+            <label for="node-input-triggerDelayMs"><i class="fa fa-pause"></i> Trigger delay</label>
+            <input type="number" id="node-input-triggerDelayMs" min="0" step="50" style="width:100px;">
+            <span style="margin-left:6px;">ms</span>
+        </div>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="director">
+    <p>Runs an isolated inference against the complete snapshot cached by the Config flow node using the selected Voxta connection, then injects the generated guidance into a persistent context slot.</p>
+    <p><b>Voxta TextGen</b> mode uses <code>POST /api/text/generate</code> through the Voxta server. <b>Direct OpenAI</b> mode bypasses Voxta and calls an OpenAI-compatible <code>/v1/chat/completions</code> endpoint directly — useful when the local backend conflicts with Voxta's service lifecycle. Context injection always goes through Voxta via SignalR.</p>
+    <p>The model returns plain text — a thought, emotion, or direction — or <code>[KEEP]</code> to retain the current context. Context persists across replies and is only replaced when the model generates new text. The node handles all lifecycle deterministically; the model never sees JSON, timers, or expiry settings.</p>
+    <p>Automatic triggers are optional. Sending any input message triggers one inference manually; <code>msg.sessionId</code> may select the session.</p>
+    <p>The node has one diagnostic output containing the generated text (or <code>null</code> for keep) and the exact <code>updateContext</code> payload sent to Voxta.</p>
+</script>

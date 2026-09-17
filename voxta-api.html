@@ -1,0 +1,361 @@
+<script type="text/javascript">
+const voxtaApiDefinition = {
+    category: 'Voxta',
+    color: '#f6f7fb',
+    defaults: {
+        name: { value: '' },
+        linkTarget: { value: false },
+        client: {
+            value: '',
+            type: 'signalr-client',
+            required: true,
+            validate: function (value) { return RED.nodes.node(value) != null; }
+        },
+        configId: { value: '' },
+        configName: { value: '' },
+        serviceName: { value: 'SpeechToText' },
+        action: { value: 'toggle' },
+        moduleId: { value: '' },
+        presetId: { value: '' },
+        toggleMode: { value: 'flip' },
+        chatTargetType: { value: 'character' },
+        chatTarget: { value: '' },
+        chatEphemeral: { value: false }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'voxta.png',
+    label: function () {
+        return this.name || (this.action === 'startChat' ? 'API: Start chat' : ('API: ' + (this.serviceName || '?')));
+    },
+    oneditprepare: function () {
+        const node = this;
+
+        const services = [
+            { value: 'SpeechToText', label: 'Speech To Text (transcription)' },
+            { value: 'ActionInference', label: 'Action Inference' },
+            { value: 'TextGen', label: 'Text Generation' },
+            { value: 'TextToSpeech', label: 'Text To Speech (TTS)' },
+            { value: 'Summarization', label: 'Summarization' },
+            { value: 'ComputerVision', label: 'Computer Vision' },
+            { value: 'ImageGen', label: 'Image Generation' },
+            { value: 'AudioInput', label: 'Audio Input' },
+            { value: 'AudioOutput', label: 'Audio Output' },
+            { value: 'AudioPipeline', label: 'Audio Pipeline' },
+            { value: 'WakeWord', label: 'Wake Word' },
+            { value: 'VisionCapture', label: 'Vision Capture' },
+            { value: 'ChatAugmentations', label: 'Chat Augmentations' },
+            { value: 'Memory', label: 'Memory' },
+            { value: 'Animations', label: 'Animations' }
+        ];
+
+        const svcSelect = $('#node-input-serviceName');
+        svcSelect.empty();
+        services.forEach(function (s) { svcSelect.append($('<option/>', { value: s.value }).text(s.label)); });
+        svcSelect.val(node.serviceName || 'SpeechToText');
+
+        const actionSelect = $('#node-input-action');
+        actionSelect.val(node.action || 'toggle');
+
+        const toggleModeSelect = $('#node-input-toggleMode');
+        toggleModeSelect.val(node.toggleMode || 'flip');
+        $('#node-input-chatTargetType').val(node.chatTargetType || 'character');
+        $('#node-input-chatTarget').val(node.chatTarget || '');
+        $('#node-input-chatEphemeral').prop('checked', node.chatEphemeral === true || node.chatEphemeral === 'true');
+
+        function updateActionVisibility() {
+            const action = actionSelect.val();
+            $('#voxta-api-toggle-section').toggle(action === 'toggle' || action === 'toggleMic');
+            $('#voxta-api-toggle-tip-service').toggle(action === 'toggle');
+            $('#voxta-api-toggle-tip-mic').toggle(action === 'toggleMic');
+            $('#voxta-api-module-section').toggle(action === 'switchModule');
+            $('#voxta-api-preset-section').toggle(action === 'switchPreset');
+            $('#voxta-api-chat-section').toggle(action === 'startChat');
+        }
+        actionSelect.on('change', updateActionVisibility);
+        updateActionVisibility();
+
+        if (node.configId) {
+            $('#voxta-api-config-display').text(node.configName ? (node.configName + ' (' + node.configId.substring(0, 8) + '...)') : node.configId);
+        } else {
+            $('#voxta-api-config-display').text('Not set — press Discover');
+        }
+
+        let discoveredData = null;
+
+        // Discover button — fetches cached config from the node's signalr-client connection
+        $('#node-input-discover').off('click').on('click', function () {
+            const clientId = $('#node-input-client').val();
+            if (!clientId) {
+                RED.notify('Select a SignalR client first', 'error');
+                return;
+            }
+
+            const resultsDiv = $('#voxta-api-discover-results');
+            resultsDiv.empty().show();
+            resultsDiv.append($('<div/>', { style: 'padding:8px;color:#64748b;' }).text('Discovering...'));
+
+            const proxyUrl = 'voxta-api/discover?clientId=' + encodeURIComponent(clientId);
+
+            $.getJSON(proxyUrl, function (data) {
+                resultsDiv.empty();
+                discoveredData = data;
+
+                const configs = data.configurations || [];
+                if (configs.length === 0) {
+                    resultsDiv.append($('<div/>', { style: 'padding:8px;' }).text('No configurations found. Make sure the Voxta SignalR connection is active.'));
+                    return;
+                }
+
+                const hasLabels = data.moduleLabels && Object.keys(data.moduleLabels).length > 0;
+                if (!hasLabels) {
+                    resultsDiv.append($('<div/>', { style: 'padding:4px 8px;color:#b8860b;font-size:12px;' }).text('Note: Showing UUIDs only — SignalR labels not yet cached. Trigger a chat start or restart Node-RED to populate labels.'));
+                }
+
+                // Config selection
+                resultsDiv.append($('<div/>', { style: 'padding:4px 8px;font-weight:600;' }).text('Select configuration:'));
+                const table = $('<table/>', { style: 'width:100%;border-collapse:collapse;margin-bottom:8px;' }).appendTo(resultsDiv);
+
+                configs.forEach(function (c) {
+                    const isDefault = c.name === 'Default';
+                    const isCurrent = c.id === node.configId;
+                    const tr = $('<tr/>', { style: 'cursor:pointer;border-bottom:1px solid #e2e8f0;' }).appendTo(table);
+                    const tdRadio = $('<td/>', { style: 'padding:6px 8px;width:24px;' }).appendTo(tr);
+                    const radio = $('<input/>', {
+                        type: 'radio', name: 'voxta-api-config-select',
+                        value: c.id, 'data-name': c.name
+                    }).appendTo(tdRadio);
+                    if (isCurrent || isDefault || configs.length === 1) radio.prop('checked', true);
+                    $('<td/>', { style: 'padding:6px 8px;font-weight:600;' }).text(c.name).appendTo(tr);
+                    $('<td/>', { style: 'padding:6px 8px;color:#64748b;font-size:12px;font-family:monospace;' }).text(c.id).appendTo(tr);
+                });
+
+                if (!resultsDiv.find('input:checked').length && configs.length > 0) {
+                    resultsDiv.find('input[type="radio"]').first().prop('checked', true);
+                }
+
+                const applyBtn = $('<button/>', {
+                    type: 'button', class: 'red-ui-button red-ui-button-small', style: 'margin:4px 8px;'
+                }).text('Use selected').appendTo(resultsDiv);
+
+                applyBtn.off('click').on('click', function () {
+                    const selected = resultsDiv.find('input[name="voxta-api-config-select"]:checked');
+                    if (!selected.length) return;
+                    const configId = selected.val();
+                    const configName = selected.attr('data-name');
+                    $('#node-input-configId').val(configId);
+                    $('#node-input-configName').val(configName);
+                    $('#voxta-api-config-display').text(configName + ' (' + configId.substring(0, 8) + '...)');
+                    populateModuleDropdown(configId);
+                    resultsDiv.slideUp();
+                });
+
+                const checkedId = resultsDiv.find('input:checked').val();
+                if (checkedId) populateModuleDropdown(checkedId);
+
+            }).fail(function (jqXHR) {
+                resultsDiv.empty().show();
+                let errMsg = 'Discover failed.';
+                if (jqXHR.responseJSON && jqXHR.responseJSON.error) errMsg = 'Discover failed: ' + jqXHR.responseJSON.error;
+                else if (jqXHR.status) errMsg = 'Discover failed: HTTP ' + jqXHR.status;
+                resultsDiv.append($('<div/>', { style: 'padding:8px;color:#d9534f;' }).text(errMsg));
+            });
+        });
+
+        function getModuleLabel(serviceName, moduleId) {
+            if (!discoveredData || !discoveredData.moduleLabels) return null;
+            const svcLabels = discoveredData.moduleLabels[serviceName];
+            if (!svcLabels) return null;
+            return svcLabels[moduleId] || null;
+        }
+
+        function populateModuleDropdown(configId) {
+            if (!discoveredData) return;
+            const config = discoveredData.configurations.find(function (c) { return c.id === configId; });
+            if (!config) return;
+            const serviceName = svcSelect.val();
+            const svc = config.services[serviceName];
+            if (!svc) {
+                $('#node-input-moduleId').empty().append($('<option/>').text('No modules for this service'));
+                $('#voxta-api-preset-module').empty().append($('<option/>').text('No modules for this service'));
+                return;
+            }
+
+            const modules = svc.modules || {};
+            const currentDefault = svc.defaultServiceId;
+
+            const modSelect = $('#node-input-moduleId');
+            const presetModSelect = $('#voxta-api-preset-module');
+            modSelect.empty();
+            presetModSelect.empty();
+            modSelect.append($('<option/>', { value: '' }).text('-- Select module --'));
+            presetModSelect.append($('<option/>', { value: '' }).text('-- Select module --'));
+
+            Object.keys(modules).forEach(function (mid) {
+                const isDefault = mid === currentDefault;
+                const labelInfo = getModuleLabel(serviceName, mid);
+                let label;
+                if (labelInfo) {
+                    label = labelInfo.label + (isDefault ? ' (active)' : '');
+                } else {
+                    label = mid.substring(0, 8) + '...' + (isDefault ? ' (active)' : '');
+                }
+                modSelect.append($('<option/>', { value: mid }).text(label));
+                presetModSelect.append($('<option/>', { value: mid }).text(label));
+            });
+
+            if (node.moduleId && modules[node.moduleId]) {
+                modSelect.val(node.moduleId);
+                presetModSelect.val(node.moduleId);
+            }
+
+            populatePresetDropdown(configId, presetModSelect.val());
+        }
+
+        function populatePresetDropdown(configId, moduleId) {
+            if (!discoveredData || !configId || !moduleId) return;
+            const config = discoveredData.configurations.find(function (c) { return c.id === configId; });
+            if (!config) return;
+            const serviceName = svcSelect.val();
+            const svc = config.services[serviceName];
+            if (!svc || !svc.modules[moduleId]) return;
+
+            const modLabel = getModuleLabel(serviceName, moduleId);
+            const presets = modLabel ? modLabel.presets : [];
+            const activePreset = svc.modules[moduleId].serviceSettingsId;
+
+            const presetSelect = $('#node-input-presetId');
+            presetSelect.empty();
+            presetSelect.append($('<option/>', { value: '' }).text('-- Select preset --'));
+
+            if (presets.length > 0) {
+                presets.forEach(function (p) {
+                    const isActive = p.id === activePreset;
+                    const label = p.label + (isActive ? ' (active)' : '');
+                    presetSelect.append($('<option/>', { value: p.id }).text(label));
+                });
+            } else if (activePreset) {
+                presetSelect.append($('<option/>', { value: activePreset }).text(activePreset.substring(0, 8) + '... (active)'));
+            }
+
+            if (node.presetId) presetSelect.val(node.presetId);
+        }
+
+        svcSelect.on('change', function () {
+            const configId = $('#node-input-configId').val();
+            if (configId) populateModuleDropdown(configId);
+        });
+
+        $('#node-input-moduleId').on('change', function () {
+            const configId = $('#node-input-configId').val();
+            $('#voxta-api-preset-module').val($(this).val());
+            populatePresetDropdown(configId, $(this).val());
+        });
+
+        $('#voxta-api-preset-module').on('change', function () {
+            const configId = $('#node-input-configId').val();
+            $('#node-input-moduleId').val($(this).val());
+            populatePresetDropdown(configId, $(this).val());
+        });
+
+        if (node.configId && node.moduleId) {
+            $('#node-input-moduleId').val(node.moduleId);
+            $('#voxta-api-preset-module').val(node.moduleId);
+            $('#node-input-presetId').val(node.presetId);
+        }
+    }
+};
+RED.nodes.registerType('api', voxtaApiDefinition);
+</script>
+
+<script type="text/html" data-template-name="api">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="voxta-api">
+    </div>
+    <div class="form-row">
+        <label for="node-input-linkTarget" style="cursor:help;" title="Enable this node as a link target for the Link relay node."><i class="fa fa-link"></i> Link</label>
+        <input type="checkbox" id="node-input-linkTarget" style="display:inline-block;width:auto;margin-right:4px;">
+        <label for="node-input-linkTarget" style="width:auto;display:inline-block;font-size:12px;color:#64748b;">Enable this node as link target</label>
+    </div>
+    <div class="form-row">
+        <label for="node-input-client"><i class="fa fa-plug"></i> Voxta Client</label>
+        <input type="text" id="node-input-client">
+    </div>
+    <div class="form-row">
+        <label><i class="fa fa-search"></i> Discover</label>
+        <button type="button" class="red-ui-button red-ui-button-small" id="node-input-discover"><i class="fa fa-search"></i> Discover</button>
+        <span id="voxta-api-config-display" style="margin-left:8px;color:#64748b;font-size:12px;"></span>
+        <input type="hidden" id="node-input-configId">
+        <input type="hidden" id="node-input-configName">
+    </div>
+    <div id="voxta-api-discover-results" style="display:none;max-height:200px;overflow-y:auto;border:1px solid #dde3f0;border-radius:4px;margin-bottom:12px;"></div>
+    <div class="form-row">
+        <label for="node-input-serviceName"><i class="fa fa-cog"></i> Service</label>
+        <select id="node-input-serviceName"></select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-action"><i class="fa fa-cogs"></i> Action</label>
+        <select id="node-input-action" style="width:200px;">
+            <option value="toggle">Toggle service on/off</option>
+            <option value="toggleMic">Toggle microphone (mute/unmute)</option>
+            <option value="switchModule">Switch module (provider)</option>
+            <option value="switchPreset">Switch preset</option>
+            <option value="startChat">Start chat</option>
+        </select>
+    </div>
+    <div id="voxta-api-chat-section">
+        <div class="form-row">
+            <label for="node-input-chatTargetType"><i class="fa fa-comments"></i> Start by</label>
+            <select id="node-input-chatTargetType" style="width:200px;">
+                <option value="character">Character</option>
+                <option value="scenario">Scenario</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label for="node-input-chatTarget"><i class="fa fa-crosshairs"></i> Default target</label>
+            <input type="text" id="node-input-chatTarget" placeholder="Character or scenario name / UUID">
+        </div>
+        <div class="form-row">
+            <label for="node-input-chatEphemeral"><i class="fa fa-clock-o"></i> Ephemeral</label>
+            <input type="checkbox" id="node-input-chatEphemeral" style="display:inline-block;width:auto;margin-right:4px;">
+            <label for="node-input-chatEphemeral" style="width:auto;display:inline-block;font-size:12px;color:#64748b;">Do not persist the chat in Voxta</label>
+        </div>
+        <div class="form-tips">The incoming <code>msg.payload</code> can override this configuration: <code>{ targetType: 'character'|'scenario', target: 'name-or-uuid', characters: [...], roles: {...} }</code>. Scenario roles use their enabled default characters unless overridden.</div>
+    </div>
+    <div id="voxta-api-toggle-section">
+        <div class="form-row">
+            <label for="node-input-toggleMode"><i class="fa fa-toggle-on"></i> Toggle Mode</label>
+            <select id="node-input-toggleMode" style="width:200px;">
+                <option value="flip">Flip on each input</option>
+                <option value="set">Set via msg.payload</option>
+            </select>
+        </div>
+        <div class="form-tips" style="margin-left:140px;color:#64748b;font-size:12px;margin-bottom:12px;">
+            <span id="voxta-api-toggle-tip-service">Send <code>true</code>/<code>false</code> (or "on"/"off") in msg.payload.</span>
+            <span id="voxta-api-toggle-tip-mic" style="display:none;">Send <code>true</code>/<code>false</code> (or "mute"/"unmute") in msg.payload.</span>
+        </div>
+    </div>
+    <div id="voxta-api-module-section">
+        <div class="form-row">
+            <label for="node-input-moduleId"><i class="fa fa-plug"></i> Module</label>
+            <select id="node-input-moduleId" style="width:300px;"></select>
+        </div>
+    </div>
+    <div id="voxta-api-preset-section">
+        <div class="form-row">
+            <label for="voxta-api-preset-module"><i class="fa fa-plug"></i> Module</label>
+            <select id="voxta-api-preset-module" style="width:300px;"></select>
+        </div>
+        <div class="form-row">
+            <label for="node-input-presetId"><i class="fa fa-sliders"></i> Preset</label>
+            <select id="node-input-presetId" style="width:300px;"></select>
+        </div>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="api">
+    <p>Control Voxta services via REST API and SignalR. Toggle services on/off, toggle microphone mute/unmute, switch providers (modules), and switch presets on the fly.</p>
+    <p>Actions: Toggle service on/off (flip or set via msg.payload), Toggle microphone mute/unmute (via SignalR updateChatSettings), Switch module (by name or UUID), Switch preset (by name or UUID, or "Automatic" for default).</p>
+    <p>Uses the shared SignalR client connection for label discovery and mic control. Service toggle/module/preset operations are pure HTTP REST.</p>
+</script>
