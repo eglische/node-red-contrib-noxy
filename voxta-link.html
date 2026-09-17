@@ -1,0 +1,108 @@
+<script type="text/javascript">
+const voxtaLinkDefinition = {
+    category: 'Voxta',
+    color: '#f6f7fb',
+    defaults: {
+        name: { value: '' },
+        targets: { value: [] }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'voxta.png',
+    label: function () {
+        const count = (this.targets || []).length;
+        return this.name || ('link' + (count > 0 ? ' (' + count + ')' : ''));
+    },
+    oneditprepare: function () {
+        const node = this;
+
+        // Build the target list from all nodes with linkTarget enabled
+        const resultsDiv = $('#voxta-link-targets');
+        resultsDiv.empty();
+        resultsDiv.append($('<div/>', { style: 'padding:8px;color:#64748b;' }).text('Scanning for link-enabled Voxta nodes...'));
+
+        // Get current selected target IDs
+        const selectedIds = new Set((node.targets || []).map(function (t) { return t.id; }));
+
+        $.getJSON('link/targets', function (data) {
+            resultsDiv.empty();
+            const targets = data.targets || [];
+
+            if (targets.length === 0) {
+                resultsDiv.append($('<div/>', { style: 'padding:8px;' }).text('No Voxta nodes with "Enable as link call target" found. Enable the checkbox on any Voxta node first.'));
+                return;
+            }
+
+            // Group by type
+            const byType = {};
+            targets.forEach(function (t) {
+                if (!byType[t.type]) byType[t.type] = [];
+                byType[t.type].push(t);
+            });
+
+            // Render grouped checkboxes
+            const table = $('<div/>', { style: 'max-height:300px;overflow-y:auto;' }).appendTo(resultsDiv);
+
+            Object.keys(byType).sort().forEach(function (type) {
+                // Type header
+                const header = $('<div/>', {
+                    style: 'padding:6px 8px;font-weight:600;color:#3b5bdb;font-size:12px;text-transform:capitalize;border-bottom:1px solid #e2e8f0;'
+                }).text(type).appendTo(table);
+
+                byType[type].forEach(function (t) {
+                    const row = $('<div/>', {
+                        style: 'display:flex;gap:8px;align-items:center;padding:4px 8px 4px 16px;border-bottom:1px solid #f1f5f9;'
+                    }).appendTo(table);
+
+                    const isChecked = selectedIds.has(t.id);
+                    const cb = $('<input/>', {
+                        type: 'checkbox',
+                        class: 'voxta-link-target-cb',
+                        'data-id': t.id,
+                        'data-name': t.name,
+                        'data-type': t.type
+                    }).prop('checked', isChecked).appendTo(row);
+
+                    $('<span/>', { style: 'font-weight:500;' }).text(t.name).appendTo(row);
+                    $('<span/>', { style: 'color:#94a3b8;font-size:12px;margin-left:auto;' }).text(t.id.substring(0, 8) + '...').appendTo(row);
+                });
+            });
+
+        }).fail(function () {
+            resultsDiv.empty();
+            resultsDiv.append($('<div/>', { style: 'padding:8px;color:#d9534f;' }).text('Scan failed — make sure Node-RED is running.'));
+        });
+    },
+    oneditsave: function () {
+        // Collect checked targets
+        const targets = [];
+        $('.voxta-link-target-cb:checked').each(function () {
+            targets.push({
+                id: $(this).attr('data-id'),
+                name: $(this).attr('data-name'),
+                type: $(this).attr('data-type')
+            });
+        });
+        this.targets = targets;
+    }
+};
+RED.nodes.registerType('link', voxtaLinkDefinition);
+</script>
+
+<script type="text/html" data-template-name="link">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="link">
+    </div>
+    <div class="form-row">
+        <label><i class="fa fa-link"></i> Targets</label>
+        <span style="color:#64748b;font-size:12px;">Voxta nodes with link target enabled</span>
+    </div>
+    <div id="voxta-link-targets" style="border:1px solid #dde3f0;border-radius:6px;margin-bottom:12px;"></div>
+</script>
+
+<script type="text/html" data-help-name="link">
+    <p>Relay node that forwards messages to Voxta nodes with "Enable as link call target" checked.</p>
+    <p>Select one or more target nodes from the list. Messages arriving on the input are forwarded to all selected targets AND passed through to the output.</p>
+    <p>Targets are grouped by node type (actions, context, api, etc.) and identified by name.</p>
+</script>

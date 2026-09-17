@@ -1,0 +1,54 @@
+<script type="text/javascript">
+const voxtaEventsDefinition = {
+    category: 'Voxta',
+    color: '#f6f7fb',
+    defaults: { _keywords: { value: 'voxta' }, 
+        name: { value: '' },
+        linkTarget: { value: false },
+        client: {
+            value: '',
+            type: 'signalr-client',
+            required: true,
+            validate: function (value) { return RED.nodes.node(value) != null; }
+        },
+        eventFilter: { value: '' },
+        outputMode: { value: 'split' }
+    },
+    inputs: 0,
+    outputs: 4,
+    outputLabels: function(index) {
+        return [
+            'Chat / reply stream',
+            'Actions / app triggers',
+            'Other Voxta events',
+            'Chat snapshot: prompt, transcript and situation'
+        ][index];
+    },
+    icon: 'voxta.png',
+    label: function () {
+        return this.name || 'Config';
+    }
+};
+RED.nodes.registerType('config', voxtaEventsDefinition);
+</script>
+
+<script type="text/html" data-template-name="config">
+    <div class="form-row"><label for="node-input-name"><i class="fa fa-tag"></i> Name</label><input type="text" id="node-input-name"></div>
+    <div class="form-row">
+        <label for="node-input-linkTarget" style="cursor:help;" title="Enable this node as a link target for the Link relay node."><i class="fa fa-link"></i> Link</label>
+        <input type="checkbox" id="node-input-linkTarget" style="display:inline-block;width:auto;margin-right:4px;">
+        <label for="node-input-linkTarget" style="width:auto;display:inline-block;font-size:12px;color:#64748b;">Enable this node as link target</label>
+    </div>
+    <div class="form-row"><label for="node-input-client"><i class="fa fa-plug"></i> SignalR Client</label><input type="text" id="node-input-client"></div>
+    <div class="form-row"><label for="node-input-eventFilter"><i class="fa fa-filter"></i> Events</label><input type="text" id="node-input-eventFilter" placeholder="replyChunk,action,contextUpdated"></div>
+    <div class="form-row"><label for="node-input-outputMode"><i class="fa fa-random"></i> Outputs</label><select id="node-input-outputMode"><option value="split">Split chat/action/other across outputs 1–3; snapshots on 4</option><option value="all">Single event stream on output 1; snapshots on 4</option></select></div>
+    <div class="form-tips">Output 4 emits a complete chat snapshot when a chat starts or resumes and a final snapshot when it closes. It contains the transcript, speakers, situation/context, prompt sources, and the canonical rendered system prompt whenever Voxta diagnostics has observed it.</div>
+</script>
+
+<script type="text/html" data-help-name="config">
+    <p>Main SignalR connection node for Voxta. Configures and maintains the WebSocket connection to the Voxta server hub.</p>
+    <p>Automatically authenticates and listens for all Voxta events: chat lifecycle, replies, actions, context updates, and configuration changes.</p>
+    <p>Outputs 1–3 retain their original event routing. Output 4 emits <code>noxy.chat-snapshot.v1</code> on chat start/resume (<code>lifecycle: loaded</code>) and close (<code>lifecycle: flushed</code>).</p>
+    <p>The snapshot contains exact chat messages, a normalized speaker transcript, active situation/context, variables, flags, profile, character and scenario prompt sources. If Voxta TextGen diagnostics has observed and matched the chat, <code>payload.systemPrompt</code> also contains the canonical rendered system-role text and complete model prompt messages.</p>
+    <p>Required by all other Voxta nodes — they reference this node as their client.</p>
+</script>
